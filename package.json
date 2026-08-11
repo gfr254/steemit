@@ -1,0 +1,9 @@
+{
+  "name": "steemit-auto",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "dsteem": "^0.10.1",
+    "openai": "^4.0.0"
+  }
+}
