@@ -26,4 +26,3 @@ jobs:
       - run: node post.js
         env:
           STEEM_POST_KEY: ${{ secrets.STEEM_POST_KEY }}
-
