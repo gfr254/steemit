@@ -1,12 +1,12 @@
-name: Steemit Auto Post
+name: Steemit Auto Writer & Post
 
 on:
   schedule:
-    - cron: '0 1 * * *'   # 毎日10:00(JST)
+    - cron: '0 1 * * *'   # JST 10:00
   workflow_dispatch:
 
 jobs:
-  generate_and_post:
+  auto-post:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,12 +17,12 @@ jobs:
 
       - run: npm install
 
-      # AI 自動執筆
-      - run: node scripts/generate.js
+      # AI が Markdown を生成
+      - run: node generate.js
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-      # Steemit 投稿
+      # Steemit に投稿
       - run: node post.js
         env:
           STEEM_POST_KEY: ${{ secrets.STEEM_POST_KEY }}
