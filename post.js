@@ -7,7 +7,7 @@ const client = new Client('https://api.steemit.com');
 const author = 'あなたのSteemitユーザー名';
 
 // AI が生成した Markdown を読み込む
-const body = fs.readFileSync('output.md', 'utf8');
+const body = fs.readFileSync('post.md', 'utf8');
 
 // パーマリンクを生成（毎回ユニーク）
 const permlink = 'ai-post-' + Date.now();
