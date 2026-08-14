@@ -9,22 +9,26 @@ jobs:
   auto-post:
     runs-on: ubuntu-latest
     env:
-        ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
-    steps:
-      - uses: actions/checkout@v4
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - run: npm install
+      - name: Install dependencies
+        run: npm install
 
-      # AI が Markdown を生成
-      - run: node generate.js
+      - name: Generate Markdown with AI
+        run: node generate.js
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-      # Steemit に投稿
-      - run: node post.js
+      - name: Post to Steemit
+        run: node post.js
         env:
           STEEM_POST_KEY: ${{ secrets.STEEM_POST_KEY }}
