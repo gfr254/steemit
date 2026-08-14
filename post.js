@@ -1,22 +1,36 @@
-import dsteem from 'dsteem';
+import { Client } from 'dsteem';
+import fs from 'fs';
 
-const client = new dsteem.Client('https://api.steemit.com');
+const client = new Client('https://api.steemit.com');
 
-const privateKey = process.env.STEEM_POST_KEY;
+// 投稿者のアカウント名
+const author = 'あなたのSteemitユーザー名';
 
-async function main() {
-  const result = await client.broadcast.comment(
-    privateKey,
-    '', // parent author
-    'test', // parent permlink
-    'your-steemit-username',
-    'test-post',
-    'Hello from GitHub Actions!',
-    '',
-    {}
-  );
+// AI が生成した Markdown を読み込む
+const body = fs.readFileSync('output.md', 'utf8');
 
-  console.log(result);
-}
+// パーマリンクを生成（毎回ユニーク）
+const permlink = 'ai-post-' + Date.now();
 
-main();
+// 投稿データ
+const comment = {
+  parent_author: "",              // ← ここが絶対に空文字でないとダメ
+  parent_permlink: "blog",        // blog で OK
+  author: author,
+  permlink: permlink,
+  title: "AI Auto Generated Post",
+  body: body,
+  json_metadata: JSON.stringify({
+    tags: ["ai", "blog"],
+    app: "steemit-auto-writer"
+  })
+};
+
+// 投稿実行
+client.broadcast.comment(comment, process.env.STEEM_POST_KEY)
+  .then(result => {
+    console.log("Post success:", result);
+  })
+  .catch(error => {
+    console.error("Post failed:", error);
+  });
