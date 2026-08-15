@@ -7,7 +7,11 @@ const client = new Client("https://api.steemit.com");
 const author = "gfr254";
 
 // AI が生成した Markdown を読み込む
-const body = fs.readFileSync("post.md", "utf8");
+import path from "path";
+
+const date = new Date().toISOString().slice(0, 10);
+const filePath = path.join("posts", `${date}.md`);
+const body = fs.readFileSync(filePath, "utf8");
 
 // 毎回ユニークなパーマリンク
 const permlink = "ai-post-" + Date.now();
