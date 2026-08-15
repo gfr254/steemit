@@ -1,5 +1,6 @@
 import { Client } from "dsteem";
 import fs from "fs";
+import path from "path";
 
 const client = new Client("https://api.steemit.com");
 
@@ -7,7 +8,6 @@ const client = new Client("https://api.steemit.com");
 const author = "gfr254";
 
 // AI が生成した Markdown を読み込む
-import path from "path";
 
 const date = new Date().toISOString().slice(0, 10);
 const filePath = path.join("posts", `${date}.md`);
