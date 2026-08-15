@@ -8,8 +8,6 @@ on:
 jobs:
   auto-post:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repository
@@ -24,11 +22,11 @@ jobs:
         run: npm install
 
       - name: Generate Markdown with AI
-        run: node generate.js
+        run: node scripts/generate.js
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Post to Steemit
-        run: node post.js
+        run: node scripts/post.js
         env:
           STEEM_POST_KEY: ${{ secrets.STEEM_POST_KEY }}
