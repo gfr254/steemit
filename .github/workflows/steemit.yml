@@ -2,7 +2,7 @@ name: Steemit Auto Writer & Post
 
 on:
   schedule:
-    - cron: "0 */3 * * *"   # 3時間ごと
+    - cron: "0 1 * * *"   # JST 10:00（GitHubはUTC）
   workflow_dispatch:
 
 env:
@@ -15,46 +15,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # --- Repository checkout ---
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Node.js setup (24 に統一) ---
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: "npm"
 
-      # --- Install dependencies ---
       - name: Install dependencies
-        run: |
-          npm install
-          echo "=== npm install completed ==="
+        run: npm install
 
-      # --- Auto fix vulnerabilities (安全に自動化) ---
-      - name: Fix vulnerabilities
-        run: |
-          npm audit fix || true
-          echo "=== npm audit fix executed ==="
-
-      # --- Generate article using AI ---
       - name: Generate article
-        id: generate
-        run: |
-          echo "=== Generate Start ==="
-          node scripts/generate.js
-          echo "=== Generate End ==="
+        run: node scripts/generate.js
 
-      # --- Post to Steemit (generate 成功時のみ実行) ---
       - name: Post article
-        if: steps.generate.outcome == 'success'
-        run: |
-          echo "=== Steemit Post Start ==="
-          node scripts/post.cjs
-          echo "=== Steemit Post End ==="
+        run: node scripts/post.js
 
-      # --- Cleanup ---
-      - name: Cleanup
-        run: |
-          echo "=== Workflow Completed ==="
+      - name: Completed
+        run: echo "Steemit 自動投稿 完了"
