@@ -9,7 +9,7 @@ const key = dsteem.PrivateKey.fromString(process.env.STEEM_POST_KEY);
       {
         parent_author: '',
         parent_permlink: 'test',
-        author: 'your-steemit-id',
+        author: 'gfr254',
         permlink: 'auto-post',
         title: 'Auto Post',
         body: 'Hello from GitHub Actions!',
