@@ -22,3 +22,5 @@ const key = dsteem.PrivateKey.fromString(process.env.STEEM_POST_KEY);
     console.error('Post failed:', err);
   }
 })();
+console.log("STEEM_POST_KEY length:", process.env.STEEM_POST_KEY?.length);
+console.log("STEEM_POST_KEY starts with:", process.env.STEEM_POST_KEY?.slice(0, 3));
