@@ -2,31 +2,59 @@ name: Steemit Auto Writer & Post
 
 on:
   schedule:
-    - cron: '0 1 * * *'   # JST 10:00
+    - cron: "0 */3 * * *"   # 3時間ごと
   workflow_dispatch:
+
+env:
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  STEEM_POST_KEY: ${{ secrets.STEEM_POST_KEY }}
+  ACTIONS_RUNNER_FORCE_NODE_VERSION: 24
 
 jobs:
   auto-post:
     runs-on: ubuntu-latest
 
     steps:
+      # --- Repository checkout ---
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
+      # --- Node.js setup (24 に統一) ---
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 24
+          cache: "npm"
 
+      # --- Install dependencies ---
       - name: Install dependencies
-        run: npm install
+        run: |
+          npm install
+          echo "=== npm install completed ==="
 
-      - name: Generate Markdown with AI
-        run: node scripts/generate.js
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # --- Auto fix vulnerabilities (安全に自動化) ---
+      - name: Fix vulnerabilities
+        run: |
+          npm audit fix || true
+          echo "=== npm audit fix executed ==="
 
-      - name: Post to Steemit
-        run: node scripts/post.cjs
-        env:
-          STEEM_POST_KEY: ${{ secrets.STEEM_POST_KEY }}
+      # --- Generate article using AI ---
+      - name: Generate article
+        id: generate
+        run: |
+          echo "=== Generate Start ==="
+          node scripts/generate.js
+          echo "=== Generate End ==="
+
+      # --- Post to Steemit (generate 成功時のみ実行) ---
+      - name: Post article
+        if: steps.generate.outcome == 'success'
+        run: |
+          echo "=== Steemit Post Start ==="
+          node scripts/post.cjs
+          echo "=== Steemit Post End ==="
+
+      # --- Cleanup ---
+      - name: Cleanup
+        run: |
+          echo "=== Workflow Completed ==="
