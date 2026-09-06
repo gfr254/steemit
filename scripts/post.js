@@ -1,44 +1,40 @@
-import steem from "steem";
 import fs from "fs";
+import steem from "steem";
 
-const wif = process.env.STEEM_POST_KEY;
+const username = process.env.STEEM_USERNAME;
+const postingKey = process.env.STEEM_POSTING_KEY;
 
-// --- 記事読み込み ---
-const article = fs.readFileSync("article.txt", "utf-8");
+async function main() {
+  const content = fs.readFileSync("output/content.md", "utf-8");
 
-// --- タグ自動付与（空冷ビートル専用） ---
-const tags = [
-  "beetle",
-  "aircooled",
-  "vw",
-  "classiccar",
-  "japan",
-  "blog"
-];
+  const body = `
+# 今日の旅記録 🚗✨
 
-// --- 投稿データ ---
-const post = {
-  author: "gfr254",
-  title: "【空冷ビートル】今日の自動投稿",
-  body: article,
-  json_metadata: JSON.stringify({ tags })
-};
+![](https://raw.githubusercontent.com/gfr254/steemit/main/images/beetle.png)
 
-// --- 投稿処理 ---
-steem.broadcast.comment(
-  wif,
-  "",        // 親投稿なし
-  "beetle",  // カテゴリ
-  post.author,
-  Date.now().toString(),
-  post.title,
-  post.body,
-  post.json_metadata,
-  (err, result) => {
-    if (err) {
-      console.error("投稿エラー:", err);
-    } else {
-      console.log("Steemit 投稿成功:", result);
+${content}
+
+---
+
+Generated automatically via GitHub Actions 🚀
+`;
+
+  const permlink = "daily-post-" + Date.now();
+
+  steem.broadcast.comment(
+    postingKey,
+    "", // 親なし → 新規投稿
+    "blog",
+    username,
+    permlink,
+    "今日の旅記録（多言語＋画像）",
+    body,
+    { tags: ["travel", "beetle", "ai", "multilingual"] },
+    (err, result) => {
+      if (err) console.error("投稿エラー:", err);
+      else console.log("投稿完了:", result);
     }
-  }
-);
+  );
+}
+
+main();

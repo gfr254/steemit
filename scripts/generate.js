@@ -1,50 +1,58 @@
 import OpenAI from "openai";
 import fs from "fs";
 
-// --- 7日ローテーションテーマ ---
-const beetleThemes = [
-  "空冷ビートルの歴史と誕生秘話",
-  "空冷ビートルの整備日記（今日のメンテ）",
-  "空冷ビートルの豆知識・トリビア",
-  "空冷ビートルの旅記録（ドライブ日記）",
-  "空冷ビートルの部品紹介・カスタム",
-  "空冷ビートルの故障あるあると対策",
-  "空冷ビートルの写真ギャラリー（AI画像生成）"
-];
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// --- 今日のテーマを決定 ---
-const todayIndex = Math.floor(Date.now() / (1000 * 60 * 60 * 24)) % beetleThemes.length;
-const todayTheme = beetleThemes[todayIndex];
-
-console.log("今日のテーマ:", todayTheme);
-
-// --- OpenAI API ---
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-// --- 記事生成 ---
-async function generateArticle() {
-  const prompt = `
-あなたは空冷ビートル専門のブロガーです。
-今日のテーマは「${todayTheme}」です。
-
-Steemit向けに、読みやすく、専門的で、親しみやすい記事を書いてください。
-見出し、箇条書き、整備ポイント、歴史的背景、旅の描写などを含めてください。
-`;
-
-  const completion = await client.chat.completions.create({
+// 日本語本文を生成する関数（あなたの既存ロジック）
+async function generateJapanese() {
+  const res = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "You are a professional blogger." },
+      { role: "system", content: "You are a Japanese blogger writing for Steemit." },
+      { role: "user", content: "今日の旅記録をブログ風に書いてください。" }
+    ]
+  });
+
+  return res.choices[0].message.content;
+}
+
+// 多言語化（英語・スペイン語・韓国語）
+async function translateAll(originalText) {
+  const prompt = `
+以下の本文を英語・スペイン語・韓国語に翻訳し、
+Steemit 用に Markdown で整形してください。
+
+出力フォーマット：
+## 🇯🇵 日本語
+${originalText}
+
+## 🇺🇸 English
+{english}
+
+## 🇪🇸 Español
+{spanish}
+
+## 🇰🇷 한국어
+{korean}
+`;
+
+  const res = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: "You are a multilingual Steemit writer." },
       { role: "user", content: prompt }
     ]
   });
 
-  const article = completion.choices[0].message.content;
-
-  fs.writeFileSync("article.txt", article);
-  console.log("記事生成完了: article.txt に保存しました");
+  return res.choices[0].message.content;
 }
 
-generateArticle();
+async function main() {
+  const jp = await generateJapanese();
+  const multilingual = await translateAll(jp);
+
+  fs.writeFileSync("output/content.md", multilingual);
+  console.log("多言語化コンテンツ生成完了");
+}
+
+main();
