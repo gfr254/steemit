@@ -2,7 +2,7 @@ name: Steemit Auto Writer & Post
 
 on:
   schedule:
-    - cron: "0 1 1 * *"   # JST 10:00（GitHubはUTC）
+    - cron: "0 1 0 * *"   # JST 10:00（GitHubはUTC）
   workflow_dispatch:
 
 env:
