@@ -1,38 +1,29 @@
 name: Steemit Auto Writer & Post
 
 on:
-  schedule:
-    - cron: "0 1 * * *"   # JST 10:00（GitHubはUTC）
   workflow_dispatch:
-
-env:
-  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-  STEEM_POST_KEY: ${{ secrets.STEEM_POST_KEY }}
-  STEEM_USERNAME: ${{ secrets.STEEM_USERNAME }}   # ← 追加（必須）
-  ACTIONS_RUNNER_FORCE_NODE_VERSION: 24
+  schedule:
+    - cron: "0 1 * * *"   # 毎朝 10:00 JST
 
 jobs:
-  auto-post:
+  post:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: "npm"
+          node-version: 22
 
       - name: Install dependencies
         run: npm install
 
-      - name: Generate article
-        run: node scripts/generate.js
-
-      - name: Post article
+      - name: Run Steemit Auto Post
+        env:
+          STEEM_POST_KEY: ${{ secrets.STEEM_POST_KEY }}
+          STEEM_AUTHOR: ${{ secrets.STEEM_AUTHOR }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/post.js
-
-      - name: Completed
-        run: echo "Steemit 自動投稿 完了"
