@@ -45,16 +45,12 @@ ${originalText}
 }
 
 async function main() {
-  // 🔥 output フォルダが無ければ作成（今回のエラーの原因）
-  if (!fs.existsSync("output")) {
-    fs.mkdirSync("output");
-  }
-
   const jp = await generateJapanese();
   const multilingual = await translateAll(jp);
 
-  fs.writeFileSync("output/content.md", multilingual);
-  console.log("多言語化コンテンツ生成完了");
+  // 🔥 output.md に統一（post.js と完全一致）
+  fs.writeFileSync("output.md", multilingual);
+  console.log("多言語化コンテンツ生成完了 → output.md");
 }
 
 main();
