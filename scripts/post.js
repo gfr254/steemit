@@ -1,3 +1,13 @@
+import { PrivateKey } from "dsteem";
+
+try {
+  const testKey = PrivateKey.fromString(process.env.STEEM_POST_KEY);
+  console.log("✔ dsteem が鍵を認識しました（OK）");
+} catch (e) {
+  console.error("❌ dsteem が鍵を認識できません → Posting Key が間違っています");
+  process.exit(1);
+}
+
 import { Client } from 'dsteem';
 import fs from 'fs';
 import OpenAI from "openai";
