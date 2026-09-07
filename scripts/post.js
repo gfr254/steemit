@@ -71,7 +71,14 @@ async function safePost(op) {
 async function postToSteemit(article) {
   console.log("🚀 Steemit 投稿中...");
 
-  const permlink = "beetle-" + new Date().toISOString().replace(/[:.]/g, "-");
+  // ====== permlink（禁止文字 T/Z を除去） ======
+  const permlink =
+    "beetle-" +
+    new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")   // 12:22:04.867 → 12-22-04-867
+      .replace("T", "-")       // T を削除
+      .replace("Z", "");       // Z を削除
 
   const bodyWithImage = `
 ![Air-cooled Beetle](${RAW_IMAGE_URL})
