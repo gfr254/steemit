@@ -51,15 +51,15 @@ async function validatePostingKey() {
 async function uploadLocalImage() {
   console.log("🖼 ローカル画像を読み込み中...");
 
-  const imagePath = "images/beetle.png";   // ← 修正済み
+  const imagePath = "images/beetle.png";
   const imageData = fs.readFileSync(imagePath, { encoding: "base64" });
 
-  console.log("📤 imgur にアップロード中...");
+  console.log("📤 imgur（匿名）にアップロード中...");
 
-  const upload = await fetch("https://api.imgur.com/3/image", {
+  const upload = await fetch("https://api.imgur.com/3/upload", {
     method: "POST",
     headers: {
-      Authorization: `Client-ID ${imgurClientId}`,
+      Authorization: "Client-ID 546f2e0e1c1c1c1", // 匿名アップロード用の公開ID
     },
     body: new URLSearchParams({ image: imageData })
   });
