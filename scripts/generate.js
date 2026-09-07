@@ -17,37 +17,9 @@ async function generate() {
   "tags": ["life","car","travel"]
 }
 
-### タイトル（EN）
-- 英語のみ
-- SEO向け（Air-cooled Beetle / Classic Car / Japan / Fujioka / Daily Life / Maintenance / Memories）
-- 海外旧車ファンが検索する語彙を必ず含める
-- 生活・整備・思い出・藤岡の文化を反映する
-
 英語タイトルは必ず以下の語彙を含める：
 Air-cooled Beetle / Classic Car / Japan / Fujioka / Daily Life / Maintenance / Memories
 
-### 日本語（JA）
-- 一人称「かずひろ」
-- 空冷ビートルの生活・整備・思い出を日記のように語る
-- 藤岡の風景・旧車文化を具体的に描写
-- 読者に語りかける柔らかい文体
-
-### 英語（EN）
-- 海外読者向けに説明的で丁寧
-- Air-cooled Beetle の魅力を文化的背景とともに紹介
-- Fujioka のローカル文化を簡潔に説明
-- 読みやすい短めの段落構成
-
-### スペイン語（ES）
-- ラテン圏向けに情緒的・温かい文体
-- 車との絆や旅の感情を強めに描写
-
-### 韓国語（KO）
-- 丁寧語（~습니다）
-- 短文中心で読みやすく
-- 日本の旧車文化を簡潔に説明
-
-### テーマ固定
 テーマは常に「空冷ビートルの生活・整備・思い出」に固定する。
 `;
 
@@ -63,7 +35,7 @@ Air-cooled Beetle / Classic Car / Japan / Fujioka / Daily Life / Maintenance / M
   const article = JSON.parse(response.choices[0].message.content);
 
   fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
-  console.log("✔ 多言語記事生成完了（空冷ビートル生活・テーマ固定版）: article.json に保存しました");
+  console.log("✔ 多言語記事生成完了: article.json に保存しました");
 }
 
 generate();

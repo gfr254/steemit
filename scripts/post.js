@@ -1,59 +1,13 @@
 import { Client, PrivateKey } from "dsteem";
-import OpenAI from "openai";
+import fs from "fs";
 
-// ====== RPC ノード ======
 const client = new Client("https://api.justyy.com");
 
-// ====== Secrets ======
 const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ====== GitHub Pages 画像URL（100%表示される） ======
 const RAW_IMAGE_URL = "https://gfr254.github.io/steemit/beetle.png";
 
-// ====== AI に生成させるプロンプト ======
-const prompt = `
-あなたは「空冷かずひろ」の Steemit 多言語投稿AIです。
-以下の構造で、各言語の文化に合わせた自然で読みやすい文章を生成してください。
-
-{
-  "title": "英語のSEOタイトル（Air-cooled Beetle / Fujioka / Classic car life）",
-  "body_ja": "本文（日本語 450〜650文字）",
-  "body_en": "本文（英語 300〜450 words）",
-  "body_es": "本文（スペイン語 300〜450 palabras）",
-  "body_ko": "본문 (한국어 300~450자)",
-  "tags": ["life","car","travel"]
-}
-
-### タイトル（EN）
-- 英語のみ
-- SEO向け（Air-cooled Beetle / Fujioka / Classic car / Japan）
-- 海外読者がクリックしたくなる構造
-
-### 日本語（JA）
-- 一人称「かずひろ」
-- 空冷ビートルの生活・整備・旅を日記のように語る
-- 藤岡の風景・旧車文化を具体的に描写
-
-### 英語（EN）
-- 海外読者向けに説明的で丁寧
-- Air-cooled Beetle の魅力を文化的背景とともに紹介
-- Fujioka のローカル文化を簡潔に説明
-
-### スペイン語（ES）
-- ラテン圏向けに情緒的・温かい文体
-- 車との絆や旅の感情を強めに描写
-
-### 韓国語（KO）
-- 丁寧語（~습니다）
-- 短文中心で読みやすく
-- 日本の旧車文化を簡潔に説明
-
-テーマは「空冷ビートル」「藤岡」「旧車ライフ」「整備」「旅」からランダムに選ぶ。
-`;
-
-// ====== Posting Key 判定 ======
 async function validatePostingKey() {
   const accounts = await client.database.getAccounts([author]);
   if (!accounts || accounts.length === 0) {
@@ -73,32 +27,19 @@ async function validatePostingKey() {
   console.log("✔ Posting Key は正しいです");
 }
 
-// ====== AI本文生成 ======
-async function generateContent() {
-  console.log("🤖 AI が投稿内容を生成中...");
-
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: "You generate high-quality multilingual JSON for Steemit." },
-      { role: "user", content: prompt }
-    ],
-    response_format: { type: "json_object" }
-  });
-
-  const article = JSON.parse(response.choices[0].message.content);
-
-  return article;
+function loadArticle() {
+  console.log("📄 article.json を読み込みます...");
+  const raw = fs.readFileSync("article.json", "utf-8");
+  return JSON.parse(raw);
 }
 
-// ====== Steemit 投稿（5分ルール自動リトライ） ======
 async function safePost(op) {
   try {
     return await client.broadcast.sendOperations([op], PrivateKey.fromString(postingKey));
   } catch (e) {
     if (e.jse_shortmsg && e.jse_shortmsg.includes("You may only post once every 5 minutes")) {
       console.log("⏳ Steemit の 5 分ルールにより待機します...");
-      await new Promise(r => setTimeout(r, 300000)); // 5分待機
+      await new Promise(r => setTimeout(r, 300000));
       console.log("🔁 再投稿します...");
       return await client.broadcast.sendOperations([op], PrivateKey.fromString(postingKey));
     }
@@ -106,7 +47,6 @@ async function safePost(op) {
   }
 }
 
-// ====== Steemit 投稿処理 ======
 async function postToSteemit(article) {
   console.log("🚀 Steemit 投稿中...");
 
@@ -146,7 +86,7 @@ ${article.body_ko}
       parent_permlink: "life",
       author: author,
       permlink: permlink,
-      title: article.title,   // ← 英語タイトル
+      title: article.title,
       body: bodyWithImage,
       json_metadata: JSON.stringify(json_metadata),
     },
@@ -158,9 +98,8 @@ ${article.body_ko}
   console.log(result);
 }
 
-// ====== 実行フロー ======
 (async () => {
   await validatePostingKey();
-  const article = await generateContent();
+  const article = loadArticle();
   await postToSteemit(article);
 })();
