@@ -65,12 +65,14 @@ async function generateContent() {
 
   const article = JSON.parse(response.choices[0].message.content);
 
-  // タグは3個に制限
-  article.tags = article.tags.slice(0, 3);
+  // ====== 軽量化パッチ ======
 
-  // 本文が長すぎる場合は安全な長さに短縮
-  if (article.body.length > 1200) {
-    article.body = article.body.substring(0, 1200);
+  // タグは英語3個に固定（日本語タグ禁止）
+  article.tags = ["life", "car", "travel"];
+
+  // 本文は800文字以内に強制（最も安定）
+  if (article.body.length > 800) {
+    article.body = article.body.substring(0, 800);
   }
 
   console.log("✔ AI 投稿内容生成完了");
@@ -86,7 +88,7 @@ async function postToSteemit(article) {
 
     const json_metadata = {
       tags: article.tags,
-      app: "ai-writer",
+      app: "ai-writer"
     };
 
     const op = [
