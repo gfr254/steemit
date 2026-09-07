@@ -9,7 +9,7 @@ async function generate() {
 以下の構造で、各言語の文化に合わせた自然で読みやすい文章を生成してください。
 
 {
-  "title": "投稿タイトル（SEO向け・旧車×旅×藤岡）",
+  "title": "英語のSEOタイトル（Air-cooled Beetle / Fujioka / Classic car life）",
   "body_ja": "本文（日本語 450〜650文字）",
   "body_en": "本文（英語 300〜450 words）",
   "body_es": "本文（スペイン語 300〜450 palabras）",
@@ -17,22 +17,24 @@ async function generate() {
   "tags": ["life","car","travel"]
 }
 
+### タイトル（EN）
+- 英語のみ
+- SEO向け（Air-cooled Beetle / Fujioka / Classic car / Japan）
+- 海外読者がクリックしたくなる構造
+
 ### 日本語（JA）
 - 一人称「かずひろ」
-- 空冷ビートルの生活・整備・旅を “日記のように語る”
+- 空冷ビートルの生活・整備・旅を日記のように語る
 - 藤岡の風景・旧車文化を具体的に描写
-- 読者に語りかける柔らかい文体
 
 ### 英語（EN）
-- 海外読者向けに “説明的で丁寧”
+- 海外読者向けに説明的で丁寧
 - Air-cooled Beetle の魅力を文化的背景とともに紹介
-- Japan / Fujioka のローカル文化を簡潔に説明
-- 読みやすい短めの段落構成
+- Fujioka のローカル文化を簡潔に説明
 
 ### スペイン語（ES）
-- ラテン圏の旧車文化に合わせて “情緒的・温かい”
+- ラテン圏向けに情緒的・温かい文体
 - 車との絆や旅の感情を強めに描写
-- 読者に語りかけるスタイル
 
 ### 韓国語（KO）
 - 丁寧語（~습니다）
@@ -54,7 +56,7 @@ async function generate() {
   const article = JSON.parse(response.choices[0].message.content);
 
   fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
-  console.log("✔ 多言語記事生成完了（品質向上版）: article.json に保存しました");
+  console.log("✔ 多言語記事生成完了（英語タイトル版）: article.json に保存しました");
 }
 
 generate();
