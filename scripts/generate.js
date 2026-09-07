@@ -9,7 +9,7 @@ async function generate() {
 以下の構造で、各言語の文化に合わせた自然で読みやすい文章を生成してください。
 
 {
-  "title": "英語のSEOタイトル（Air-cooled Beetle / Fujioka / Classic car life）",
+  "title": "英語のSEOタイトル（Air-cooled Beetle / Classic Car / Japan / Fujioka / Daily Life / Maintenance / Memories）",
   "body_ja": "本文（日本語 450〜650文字）",
   "body_en": "本文（英語 300〜450 words）",
   "body_es": "本文（スペイン語 300〜450 palabras）",
@@ -19,18 +19,24 @@ async function generate() {
 
 ### タイトル（EN）
 - 英語のみ
-- SEO向け（Air-cooled Beetle / Fujioka / Classic car / Japan）
-- 海外読者がクリックしたくなる構造
+- SEO向け（Air-cooled Beetle / Classic Car / Japan / Fujioka / Daily Life / Maintenance / Memories）
+- 海外旧車ファンが検索する語彙を必ず含める
+- 生活・整備・思い出・藤岡の文化を反映する
+
+英語タイトルは必ず以下の語彙を含める：
+Air-cooled Beetle / Classic Car / Japan / Fujioka / Daily Life / Maintenance / Memories
 
 ### 日本語（JA）
 - 一人称「かずひろ」
-- 空冷ビートルの生活・整備・旅を日記のように語る
+- 空冷ビートルの生活・整備・思い出を日記のように語る
 - 藤岡の風景・旧車文化を具体的に描写
+- 読者に語りかける柔らかい文体
 
 ### 英語（EN）
 - 海外読者向けに説明的で丁寧
 - Air-cooled Beetle の魅力を文化的背景とともに紹介
 - Fujioka のローカル文化を簡潔に説明
+- 読みやすい短めの段落構成
 
 ### スペイン語（ES）
 - ラテン圏向けに情緒的・温かい文体
@@ -41,7 +47,8 @@ async function generate() {
 - 短文中心で読みやすく
 - 日本の旧車文化を簡潔に説明
 
-テーマは「空冷ビートル」「藤岡」「旧車ライフ」「整備」「旅」からランダムに選ぶ。
+### テーマ固定
+テーマは常に「空冷ビートルの生活・整備・思い出」に固定する。
 `;
 
   const response = await openai.chat.completions.create({
@@ -56,7 +63,7 @@ async function generate() {
   const article = JSON.parse(response.choices[0].message.content);
 
   fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
-  console.log("✔ 多言語記事生成完了（英語タイトル版）: article.json に保存しました");
+  console.log("✔ 多言語記事生成完了（空冷ビートル生活・テーマ固定版）: article.json に保存しました");
 }
 
 generate();
