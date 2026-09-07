@@ -1,38 +1,59 @@
 import { Client, PrivateKey } from "dsteem";
 import fs from "fs";
 
-const client = new Client("https://api.justyy.com");
+// ====== RPC ノード冗長化 ======
+const RPC_NODES = [
+  "https://api.justyy.com",
+  "https://api.steemit.com",
+  "https://steem.justyy.workers.dev"
+];
+
+function getClient() {
+  const node = RPC_NODES[Math.floor(Math.random() * RPC_NODES.length)];
+  console.log("🔌 RPC ノード:", node);
+  return new Client(node);
+}
+
+const client = getClient();
 
 const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
 
 const RAW_IMAGE_URL = "https://gfr254.github.io/steemit/beetle.png";
 
-async function validatePostingKey() {
-  const accounts = await client.database.getAccounts([author]);
-  if (!accounts || accounts.length === 0) {
-    console.error("❌ author が空です");
-    process.exit(1);
-  }
-
-  const postingPubKey = accounts[0].posting.key_auths[0][0];
-  const keyObj = PrivateKey.fromString(postingKey);
-  const pub = keyObj.createPublic().toString();
-
-  if (pub !== postingPubKey) {
-    console.error("❌ Posting Key ではありません");
-    process.exit(1);
-  }
-
-  console.log("✔ Posting Key は正しいです");
-}
-
+// ====== article.json 読み込み（破損検出付き） ======
 function loadArticle() {
   console.log("📄 article.json を読み込みます...");
+
+  if (!fs.existsSync("article.json")) {
+    throw new Error("❌ article.json が存在しません（generate.js が失敗）");
+  }
+
   const raw = fs.readFileSync("article.json", "utf-8");
-  return JSON.parse(raw);
+
+  if (!raw || raw.trim().length < 50) {
+    throw new Error("❌ article.json が破損しています（内容が空または不完全）");
+  }
+
+  let json;
+  try {
+    json = JSON.parse(raw);
+  } catch (e) {
+    throw new Error("❌ article.json が JSON として読み込めません（破損）");
+  }
+
+  const required = ["title", "body_ja", "body_en", "body_es", "body_ko"];
+  for (const key of required) {
+    if (!json[key] || json[key].length < 10) {
+      throw new Error(`❌ article.json の ${key} が破損しています`);
+    }
+  }
+
+  console.log("✔ article.json は正常です");
+  return json;
 }
 
+// ====== 5分ルール自動リトライ ======
 async function safePost(op) {
   try {
     return await client.broadcast.sendOperations([op], PrivateKey.fromString(postingKey));
@@ -50,7 +71,7 @@ async function safePost(op) {
 async function postToSteemit(article) {
   console.log("🚀 Steemit 投稿中...");
 
-  const permlink = "ai-post-" + Date.now();
+  const permlink = "beetle-" + new Date().toISOString().replace(/[:.]/g, "-");
 
   const bodyWithImage = `
 ![Air-cooled Beetle](${RAW_IMAGE_URL})
@@ -75,7 +96,15 @@ ${article.body_ko}
 `;
 
   const json_metadata = {
-    tags: ["life", "car", "travel"],
+    tags: [
+      "aircooled",
+      "beetle",
+      "classiccar",
+      "japan",
+      "fujioka",
+      "maintenance",
+      ...article.tags
+    ],
     app: "ai-writer"
   };
 
@@ -86,7 +115,7 @@ ${article.body_ko}
       parent_permlink: "life",
       author: author,
       permlink: permlink,
-      title: article.title,
+      title: article.title.trim(),
       body: bodyWithImage,
       json_metadata: JSON.stringify(json_metadata),
     },
@@ -99,7 +128,6 @@ ${article.body_ko}
 }
 
 (async () => {
-  await validatePostingKey();
   const article = loadArticle();
   await postToSteemit(article);
 })();
