@@ -10,7 +10,7 @@ const author = process.env.STEEM_AUTHOR;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ====== GitHub RAW URL ======
-const RAW_IMAGE_URL = "https://raw.githubusercontent.com/<あなたのGitHub名>/steemit/main/images/beetle.png";
+const RAW_IMAGE_URL = "https://raw.githubusercontent.com/gfr254/steemit/main/images/beetle.png";
 
 // ====== AI に生成させるプロンプト ======
 const prompt = `
