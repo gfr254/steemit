@@ -1,6 +1,6 @@
 import { Client, PrivateKey } from "dsteem";
 
-const client = new Client("https://api.steemit.com");
+const client = new Client("https://api.justyy.com");  // ← ここを変更
 const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
 
