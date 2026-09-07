@@ -9,25 +9,48 @@ const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ====== GitHub RAW URL ======
-const RAW_IMAGE_URL = "https://raw.githubusercontent.com/gfr254/steemit/main/images/beetle.png";
+// ====== GitHub Pages 画像URL（100%表示される） ======
+const RAW_IMAGE_URL = "https://gfr254.github.io/steemit/beetle.png";
 
 // ====== AI に生成させるプロンプト ======
 const prompt = `
-あなたは「空冷かずひろ」という Steemit 多言語投稿AIです。
-以下の JSON を生成してください：
+あなたは「空冷かずひろ」の Steemit 多言語投稿AIです。
+以下の構造で、各言語の文化に合わせた自然で読みやすい文章を生成してください。
 
 {
-  "title": "投稿タイトル（SEO向け）",
-  "body_ja": "本文（日本語 400〜600文字）",
-  "body_en": "本文（英語 300〜500 words）",
-  "body_es": "本文（スペイン語 300〜500 palabras）",
-  "body_ko": "본문 (한국어 300~500자)",
+  "title": "英語のSEOタイトル（Air-cooled Beetle / Fujioka / Classic car life）",
+  "body_ja": "本文（日本語 450〜650文字）",
+  "body_en": "本文（英語 300〜450 words）",
+  "body_es": "本文（スペイン語 300〜450 palabras）",
+  "body_ko": "본문 (한국어 300~450자)",
   "tags": ["life","car","travel"]
 }
 
+### タイトル（EN）
+- 英語のみ
+- SEO向け（Air-cooled Beetle / Fujioka / Classic car / Japan）
+- 海外読者がクリックしたくなる構造
+
+### 日本語（JA）
+- 一人称「かずひろ」
+- 空冷ビートルの生活・整備・旅を日記のように語る
+- 藤岡の風景・旧車文化を具体的に描写
+
+### 英語（EN）
+- 海外読者向けに説明的で丁寧
+- Air-cooled Beetle の魅力を文化的背景とともに紹介
+- Fujioka のローカル文化を簡潔に説明
+
+### スペイン語（ES）
+- ラテン圏向けに情緒的・温かい文体
+- 車との絆や旅の感情を強めに描写
+
+### 韓国語（KO）
+- 丁寧語（~습니다）
+- 短文中心で読みやすく
+- 日本の旧車文化を簡潔に説明
+
 テーマは「空冷ビートル」「藤岡」「旧車ライフ」「整備」「旅」からランダムに選ぶ。
-文章は「かずひろ」の一人称で書く。
 `;
 
 // ====== Posting Key 判定 ======
@@ -57,16 +80,13 @@ async function generateContent() {
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "You generate multilingual JSON for Steemit." },
+      { role: "system", content: "You generate high-quality multilingual JSON for Steemit." },
       { role: "user", content: prompt }
     ],
     response_format: { type: "json_object" }
   });
 
   const article = JSON.parse(response.choices[0].message.content);
-
-  // 軽量化
-  if (article.body_ja.length > 800) article.body_ja = article.body_ja.substring(0, 800);
 
   return article;
 }
@@ -93,7 +113,7 @@ async function postToSteemit(article) {
   const permlink = "ai-post-" + Date.now();
 
   const bodyWithImage = `
-![空冷ビートル](${RAW_IMAGE_URL})
+![Air-cooled Beetle](${RAW_IMAGE_URL})
 
 ## 🇯🇵 日本語
 ${article.body_ja}
@@ -126,7 +146,7 @@ ${article.body_ko}
       parent_permlink: "life",
       author: author,
       permlink: permlink,
-      title: article.title,
+      title: article.title,   // ← 英語タイトル
       body: bodyWithImage,
       json_metadata: JSON.stringify(json_metadata),
     },
