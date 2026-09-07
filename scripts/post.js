@@ -16,7 +16,7 @@ const prompt = `
 
 {
   "title": "投稿タイトル（SEO向け）",
-  "body": "本文（1000〜1500文字）",
+  "body": "本文（600〜900文字）",
   "tags": ["tag1","tag2","tag3"]
 }
 
@@ -65,6 +65,14 @@ async function generateContent() {
 
   const article = JSON.parse(response.choices[0].message.content);
 
+  // タグは3個に制限
+  article.tags = article.tags.slice(0, 3);
+
+  // 本文が長すぎる場合は安全な長さに短縮
+  if (article.body.length > 1200) {
+    article.body = article.body.substring(0, 1200);
+  }
+
   console.log("✔ AI 投稿内容生成完了");
   return article;
 }
@@ -78,7 +86,7 @@ async function postToSteemit(article) {
 
     const json_metadata = {
       tags: article.tags,
-      app: "ai-writer/1.0",
+      app: "ai-writer",
     };
 
     const op = [
