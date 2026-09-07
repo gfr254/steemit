@@ -2,7 +2,7 @@ name: Steemit Auto Writer & Post
 
 on:
   schedule:
-    - cron: '7 1 * * *'   # JST 10:07（最も安定）
+    - cron: "7 1 * * *"   # JST 10:07（最も安定）
   workflow_dispatch:
 
 jobs:
@@ -12,20 +12,25 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 1
-      retry:
-        max: 3
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: 24
+          cache: "npm"
 
-      - run: npm install
+      - name: Install dependencies
+        run: |
+          npm install
 
-      - name: Generate Article
-        run: node generate.js
+      - name: Generate article (整備固定)
+        run: |
+          node scripts/generate.js
 
       - name: Post to Steemit
-        run: node post.js
+        run: |
+          node scripts/post.js
