@@ -1,56 +1,39 @@
 import OpenAI from "openai";
 import fs from "fs";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function generateJapanese() {
-  const res = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: "You are a Japanese blogger writing for Steemit." },
-      { role: "user", content: "今日の旅記録をブログ風に書いてください。" }
-    ]
-  });
-  return res.choices[0].message.content;
+async function generate() {
+  const prompt = `
+あなたは「空冷かずひろ」の Steemit 多言語投稿AIです。
+以下の JSON を生成してください：
+
+{
+  "title": "投稿タイトル（SEO向け）",
+  "body_ja": "本文（日本語 400〜600文字）",
+  "body_en": "本文（英語 300〜500 words）",
+  "body_es": "本文（スペイン語 300〜500 palabras）",
+  "body_ko": "본문 (한국어 300~500자)",
+  "tags": ["life","car","travel"]
 }
 
-async function translateAll(originalText) {
-  const prompt = `
-以下の本文を英語・スペイン語・韓国語に翻訳し、
-Steemit 用に Markdown で整形してください。
-
-出力フォーマット：
-## 🇯🇵 日本語
-${originalText}
-
-## 🇺🇸 English
-{english}
-
-## 🇪🇸 Español
-{spanish}
-
-## 🇰🇷 한국어
-{korean}
+テーマは「空冷ビートル」「藤岡」「旧車ライフ」「整備」「旅」からランダムに選ぶ。
+文章は「かずひろ」の一人称で書く。
 `;
 
-  const res = await client.chat.completions.create({
+  const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "You are a multilingual Steemit writer." },
+      { role: "system", content: "You generate multilingual JSON for Steemit." },
       { role: "user", content: prompt }
-    ]
+    ],
+    response_format: { type: "json_object" }
   });
 
-  return res.choices[0].message.content;
+  const article = JSON.parse(response.choices[0].message.content);
+
+  fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
+  console.log("✔ 多言語記事生成完了: article.json に保存しました");
 }
 
-async function main() {
-  const jp = await generateJapanese();
-  const multilingual = await translateAll(jp);
-
-  // 🔥 output.md に統一（post.js と完全一致）
-  fs.writeFileSync("output.md", multilingual);
-  console.log("多言語化コンテンツ生成完了 → output.md");
-}
-
-main();
+generate();
