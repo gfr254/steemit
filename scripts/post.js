@@ -1,13 +1,16 @@
 import { Client, PrivateKey } from "dsteem";
 import OpenAI from "openai";
+import fs from "fs";
+import fetch from "node-fetch";
 
-// ====== RPC ノード（最も安定） ======
+// ====== RPC ノード ======
 const client = new Client("https://api.justyy.com");
 
 // ====== Secrets ======
 const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const imgurClientId = process.env.IMGUR_CLIENT_ID;
 
 // ====== AI に生成させるプロンプト ======
 const prompt = `
@@ -17,7 +20,7 @@ const prompt = `
 {
   "title": "投稿タイトル（SEO向け）",
   "body": "本文（600〜900文字）",
-  "tags": ["tag1","tag2","tag3"]
+  "tags": ["life","car","travel"]
 }
 
 テーマは「空冷ビートル」「藤岡」「旧車ライフ」「整備」「旅」からランダムに選ぶ。
@@ -26,31 +29,55 @@ const prompt = `
 
 // ====== Posting Key 判定 ======
 async function validatePostingKey() {
-  try {
-    const accounts = await client.database.getAccounts([author]);
-
-    if (!accounts || accounts.length === 0) {
-      console.error("❌ ERROR: RPC がアカウント情報を返しません（author が空の可能性）");
-      process.exit(1);
-    }
-
-    const postingPubKey = accounts[0].posting.key_auths[0][0];
-    const keyObj = PrivateKey.fromString(postingKey);
-    const pub = keyObj.createPublic().toString();
-
-    if (pub !== postingPubKey) {
-      console.error("❌ ERROR: この鍵は Posting Key ではありません（Active Key の可能性）");
-      process.exit(1);
-    }
-
-    console.log("✔ Posting Key は正しいです");
-  } catch (e) {
-    console.error("❌ Posting Key 判定中にエラー:", e);
+  const accounts = await client.database.getAccounts([author]);
+  if (!accounts || accounts.length === 0) {
+    console.error("❌ author が空です");
     process.exit(1);
   }
+
+  const postingPubKey = accounts[0].posting.key_auths[0][0];
+  const keyObj = PrivateKey.fromString(postingKey);
+  const pub = keyObj.createPublic().toString();
+
+  if (pub !== postingPubKey) {
+    console.error("❌ Posting Key ではありません");
+    process.exit(1);
+  }
+
+  console.log("✔ Posting Key は正しいです");
 }
 
-// ====== AI に投稿内容を生成させる ======
+// ====== ローカル画像 → imgur アップロード ======
+async function uploadLocalImage() {
+  console.log("🖼 ローカル画像を読み込み中...");
+
+  const imagePath = "images/beetle.png";   // ← 修正済み
+  const imageData = fs.readFileSync(imagePath, { encoding: "base64" });
+
+  console.log("📤 imgur にアップロード中...");
+
+  const upload = await fetch("https://api.imgur.com/3/image", {
+    method: "POST",
+    headers: {
+      Authorization: `Client-ID ${imgurClientId}`,
+    },
+    body: new URLSearchParams({ image: imageData })
+  });
+
+  const json = await upload.json();
+
+  if (!json.success) {
+    console.error("❌ imgur アップロード失敗:", json);
+    process.exit(1);
+  }
+
+  const url = json.data.link;
+  console.log("✔ 画像URL:", url);
+
+  return url;
+}
+
+// ====== AI本文生成 ======
 async function generateContent() {
   console.log("🤖 AI が投稿内容を生成中...");
 
@@ -65,61 +92,55 @@ async function generateContent() {
 
   const article = JSON.parse(response.choices[0].message.content);
 
-  // ====== 軽量化パッチ ======
-
-  // タグは英語3個に固定（日本語タグ禁止）
+  // 軽量化
   article.tags = ["life", "car", "travel"];
-
-  // 本文は800文字以内に強制（最も安定）
   if (article.body.length > 800) {
     article.body = article.body.substring(0, 800);
   }
 
-  console.log("✔ AI 投稿内容生成完了");
   return article;
 }
 
 // ====== Steemit 投稿処理 ======
-async function postToSteemit(article) {
-  try {
-    console.log("🚀 Steemit 投稿中...");
+async function postToSteemit(article, imageUrl) {
+  console.log("🚀 Steemit 投稿中...");
 
-    const permlink = "ai-post-" + Date.now();
+  const permlink = "ai-post-" + Date.now();
 
-    const json_metadata = {
-      tags: article.tags,
-      app: "ai-writer"
-    };
+  // 画像を本文の先頭に挿入
+  const bodyWithImage = `![空冷ビートル](${imageUrl})\n\n${article.body}`;
 
-    const op = [
-      "comment",
-      {
-        parent_author: "",
-        parent_permlink: article.tags[0] || "blog",
-        author: author,
-        permlink: permlink,
-        title: article.title,
-        body: article.body,
-        json_metadata: JSON.stringify(json_metadata),
-      },
-    ];
+  const json_metadata = {
+    tags: article.tags,
+    app: "ai-writer"
+  };
 
-    const result = await client.broadcast.sendOperations(
-      [op],
-      PrivateKey.fromString(postingKey)
-    );
+  const op = [
+    "comment",
+    {
+      parent_author: "",
+      parent_permlink: article.tags[0],
+      author: author,
+      permlink: permlink,
+      title: article.title,
+      body: bodyWithImage,
+      json_metadata: JSON.stringify(json_metadata),
+    },
+  ];
 
-    console.log("✔ 投稿成功！");
-    console.log(result);
-  } catch (e) {
-    console.error("❌ 投稿失敗:", e);
-    process.exit(1);
-  }
+  const result = await client.broadcast.sendOperations(
+    [op],
+    PrivateKey.fromString(postingKey)
+  );
+
+  console.log("✔ 投稿成功！");
+  console.log(result);
 }
 
 // ====== 実行フロー ======
 (async () => {
   await validatePostingKey();
+  const imageUrl = await uploadLocalImage();
   const article = await generateContent();
-  await postToSteemit(article);
+  await postToSteemit(article, imageUrl);
 })();
