@@ -1,7 +1,5 @@
 import { Client, PrivateKey } from "dsteem";
 import OpenAI from "openai";
-import fs from "fs";
-import fetch from "node-fetch";
 
 // ====== RPC ノード ======
 const client = new Client("https://api.justyy.com");
@@ -10,7 +8,9 @@ const client = new Client("https://api.justyy.com");
 const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const imgurClientId = process.env.IMGUR_CLIENT_ID;
+
+// ====== GitHub RAW URL（ここだけ変更すればOK） ======
+const RAW_IMAGE_URL = "https://raw.githubusercontent.com/gfr254/steemit/main/images/beetle.png";
 
 // ====== AI に生成させるプロンプト ======
 const prompt = `
@@ -47,36 +47,6 @@ async function validatePostingKey() {
   console.log("✔ Posting Key は正しいです");
 }
 
-// ====== ローカル画像 → imgur アップロード ======
-async function uploadLocalImage() {
-  console.log("🖼 ローカル画像を読み込み中...");
-
-  const imagePath = "images/beetle.png";
-  const imageData = fs.readFileSync(imagePath, { encoding: "base64" });
-
-  console.log("📤 imgur（匿名）にアップロード中...");
-
-  const upload = await fetch("https://api.imgur.com/3/upload", {
-    method: "POST",
-    headers: {
-      Authorization: "Client-ID 546f2e0e1c1c1c1", // 匿名アップロード用の公開ID
-    },
-    body: new URLSearchParams({ image: imageData })
-  });
-
-  const json = await upload.json();
-
-  if (!json.success) {
-    console.error("❌ imgur アップロード失敗:", json);
-    process.exit(1);
-  }
-
-  const url = json.data.link;
-  console.log("✔ 画像URL:", url);
-
-  return url;
-}
-
 // ====== AI本文生成 ======
 async function generateContent() {
   console.log("🤖 AI が投稿内容を生成中...");
@@ -102,13 +72,13 @@ async function generateContent() {
 }
 
 // ====== Steemit 投稿処理 ======
-async function postToSteemit(article, imageUrl) {
+async function postToSteemit(article) {
   console.log("🚀 Steemit 投稿中...");
 
   const permlink = "ai-post-" + Date.now();
 
-  // 画像を本文の先頭に挿入
-  const bodyWithImage = `![空冷ビートル](${imageUrl})\n\n${article.body}`;
+  // GitHub RAW URL を本文の先頭に挿入
+  const bodyWithImage = `![空冷ビートル](${RAW_IMAGE_URL})\n\n${article.body}`;
 
   const json_metadata = {
     tags: article.tags,
@@ -140,7 +110,6 @@ async function postToSteemit(article, imageUrl) {
 // ====== 実行フロー ======
 (async () => {
   await validatePostingKey();
-  const imageUrl = await uploadLocalImage();
   const article = await generateContent();
-  await postToSteemit(article, imageUrl);
+  await postToSteemit(article);
 })();
