@@ -9,17 +9,20 @@ const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ====== GitHub RAW URL（ここだけ変更すればOK） ======
-const RAW_IMAGE_URL = "https://raw.githubusercontent.com/gfr254/steemit/main/images/beetle.png";
+// ====== GitHub RAW URL ======
+const RAW_IMAGE_URL = "https://raw.githubusercontent.com/<あなたのGitHub名>/steemit/main/images/beetle.png";
 
 // ====== AI に生成させるプロンプト ======
 const prompt = `
-あなたは「空冷かずひろ」という Steemit 自動投稿AIです。
-以下の構造で JSON を生成してください：
+あなたは「空冷かずひろ」という Steemit 多言語投稿AIです。
+以下の JSON を生成してください：
 
 {
   "title": "投稿タイトル（SEO向け）",
-  "body": "本文（600〜900文字）",
+  "body_ja": "本文（日本語 400〜600文字）",
+  "body_en": "本文（英語 300〜500 words）",
+  "body_es": "本文（スペイン語 300〜500 palabras）",
+  "body_ko": "본문 (한국어 300~500자)",
   "tags": ["life","car","travel"]
 }
 
@@ -54,7 +57,7 @@ async function generateContent() {
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "You generate JSON for Steemit auto posting." },
+      { role: "system", content: "You generate multilingual JSON for Steemit." },
       { role: "user", content: prompt }
     ],
     response_format: { type: "json_object" }
@@ -63,12 +66,24 @@ async function generateContent() {
   const article = JSON.parse(response.choices[0].message.content);
 
   // 軽量化
-  article.tags = ["life", "car", "travel"];
-  if (article.body.length > 800) {
-    article.body = article.body.substring(0, 800);
-  }
+  if (article.body_ja.length > 800) article.body_ja = article.body_ja.substring(0, 800);
 
   return article;
+}
+
+// ====== Steemit 投稿（5分ルール自動リトライ） ======
+async function safePost(op) {
+  try {
+    return await client.broadcast.sendOperations([op], PrivateKey.fromString(postingKey));
+  } catch (e) {
+    if (e.jse_shortmsg && e.jse_shortmsg.includes("You may only post once every 5 minutes")) {
+      console.log("⏳ Steemit の 5 分ルールにより待機します...");
+      await new Promise(r => setTimeout(r, 300000)); // 5分待機
+      console.log("🔁 再投稿します...");
+      return await client.broadcast.sendOperations([op], PrivateKey.fromString(postingKey));
+    }
+    throw e;
+  }
 }
 
 // ====== Steemit 投稿処理 ======
@@ -77,11 +92,30 @@ async function postToSteemit(article) {
 
   const permlink = "ai-post-" + Date.now();
 
-  // GitHub RAW URL を本文の先頭に挿入
-  const bodyWithImage = `![空冷ビートル](${RAW_IMAGE_URL})\n\n${article.body}`;
+  const bodyWithImage = `
+![空冷ビートル](${RAW_IMAGE_URL})
+
+## 🇯🇵 日本語
+${article.body_ja}
+
+---
+
+## 🇺🇸 English
+${article.body_en}
+
+---
+
+## 🇪🇸 Español
+${article.body_es}
+
+---
+
+## 🇰🇷 한국어
+${article.body_ko}
+`;
 
   const json_metadata = {
-    tags: article.tags,
+    tags: ["life", "car", "travel"],
     app: "ai-writer"
   };
 
@@ -89,7 +123,7 @@ async function postToSteemit(article) {
     "comment",
     {
       parent_author: "",
-      parent_permlink: article.tags[0],
+      parent_permlink: "life",
       author: author,
       permlink: permlink,
       title: article.title,
@@ -98,10 +132,7 @@ async function postToSteemit(article) {
     },
   ];
 
-  const result = await client.broadcast.sendOperations(
-    [op],
-    PrivateKey.fromString(postingKey)
-  );
+  const result = await safePost(op);
 
   console.log("✔ 投稿成功！");
   console.log(result);
