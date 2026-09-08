@@ -1,20 +1,29 @@
 import { Client, PrivateKey } from "dsteem";
 import fs from "fs";
 
-// ====== RPC ノード冗長化 ======
+// ====== 投稿可能な RPC ノードのみ ======
 const RPC_NODES = [
   "https://api.justyy.com",
   "https://api.steemit.com",
-  "https://steem.justyy.workers.dev"
+  "https://api.steemitdev.com"
 ];
 
-function getClient() {
-  const node = RPC_NODES[Math.floor(Math.random() * RPC_NODES.length)];
-  console.log("🔌 RPC ノード:", node);
-  return new Client(node);
+// ====== RPC 生存確認付きクライアント ======
+async function getClient() {
+  for (const url of RPC_NODES) {
+    try {
+      const c = new Client(url);
+      await c.database.getDynamicGlobalProperties(); // 生存確認
+      console.log("✔ RPC OK:", url);
+      return c;
+    } catch (e) {
+      console.log("❌ RPC NG:", url);
+    }
+  }
+  throw new Error("❌ 全 RPC ノードが死んでいます（Steemit 側の障害）");
 }
 
-const client = getClient();
+const client = await getClient();
 
 const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
@@ -76,9 +85,9 @@ async function postToSteemit(article) {
     "beetle-" +
     new Date()
       .toISOString()
-      .replace(/[:.]/g, "-")   // 12:22:04.867 → 12-22-04-867
-      .replace("T", "-")       // T を削除
-      .replace("Z", "");       // Z を削除
+      .replace(/[:.]/g, "-")
+      .replace("T", "-")
+      .replace("Z", "");
 
   const bodyWithImage = `
 ![Air-cooled Beetle](${RAW_IMAGE_URL})
@@ -110,7 +119,7 @@ ${article.body_ko}
       "japan",
       "fujioka",
       "maintenance",
-      ...article.tags
+      ...(article.tags || [])
     ],
     app: "ai-writer"
   };
