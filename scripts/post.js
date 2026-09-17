@@ -95,28 +95,28 @@ async function postToSteemit(article) {
 ## 🇯🇵 日本語
 ${article.body_ja}
 
-> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした購入前の調査記事です。購入や整備を検討する際は、専門店へ確認してください。
+> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化や歴史を紹介する記事です。整備や購入を検討する際は、専門店へ確認してください。
 
 ---
 
 ## 🇺🇸 English
 ${article.body_en}
 
-> Note: The author does not currently own an air-cooled Volkswagen. This is a pre-purchase research article based on public information, vehicle listings, expert explanations, and owner experiences. Please consult a specialist before buying or repairing a vehicle.
+> Note: The author does not currently own an air-cooled Volkswagen. This is a cultural and historical article based on public information, historical sources, event observations, expert explanations, and owner experiences. Please consult a specialist before buying or repairing a vehicle.
 
 ---
 
 ## 🇪🇸 Español
 ${article.body_es}
 
-> Nota: El autor actualmente no posee un Volkswagen refrigerado por aire. Este artículo es una investigación previa a la compra basada en información pública, anuncios de vehículos, explicaciones de expertos y experiencias de propietarios.
+> Nota: El autor actualmente no posee un Volkswagen refrigerado por aire. Este artículo presenta la cultura y la historia de los Volkswagen refrigerados por aire a partir de información pública, fuentes históricas, eventos y experiencias de propietarios.
 
 ---
 
 ## 🇰🇷 한국어
 ${article.body_ko}
 
-> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 판매 정보, 전문가 설명 및 소유자 경험을 바탕으로 한 구매 전 조사 글입니다.
+> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 행사 관찰, 전문가 설명 및 소유자 경험을 바탕으로 공랭식 폭스바겐의 문화와 역사를 소개하는 글입니다.
 `;
   const json_metadata = {
     tags: [
@@ -124,8 +124,8 @@ ${article.body_ko}
       "beetle",
       "classiccar",
       "japan",
-      "buyingguide",
-      "research",
+      "vwculture",
+      "history",
       ...(article.tags || [])
     ],
     app: "ai-writer"
