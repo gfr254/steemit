@@ -95,30 +95,37 @@ async function postToSteemit(article) {
 ## 🇯🇵 日本語
 ${article.body_ja}
 
+> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした購入前の調査記事です。購入や整備を検討する際は、専門店へ確認してください。
+
 ---
 
 ## 🇺🇸 English
 ${article.body_en}
+
+> Note: The author does not currently own an air-cooled Volkswagen. This is a pre-purchase research article based on public information, vehicle listings, expert explanations, and owner experiences. Please consult a specialist before buying or repairing a vehicle.
 
 ---
 
 ## 🇪🇸 Español
 ${article.body_es}
 
+> Nota: El autor actualmente no posee un Volkswagen refrigerado por aire. Este artículo es una investigación previa a la compra basada en información pública, anuncios de vehículos, explicaciones de expertos y experiencias de propietarios.
+
 ---
 
 ## 🇰🇷 한국어
 ${article.body_ko}
-`;
 
+> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 판매 정보, 전문가 설명 및 소유자 경험을 바탕으로 한 구매 전 조사 글입니다.
+`;
   const json_metadata = {
     tags: [
       "aircooled",
       "beetle",
       "classiccar",
       "japan",
-      "fujioka",
-      "maintenance",
+      "buyingguide",
+      "research",
       ...(article.tags || [])
     ],
     app: "ai-writer"
