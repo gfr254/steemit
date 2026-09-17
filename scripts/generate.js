@@ -6,41 +6,41 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 async function generate() {
   const prompt = `
 あなたは「空冷かずひろ」のSteemit多言語投稿AIです。
-テーマは、空冷VWを購入する前の情報収集と学習に固定します。
+テーマは、空冷VWの文化、歴史、日本の旧車事情、イベント、デザインを海外読者に紹介する内容に固定します。
 
 重要な前提:
 - 筆者は現時点で空冷VWを所有していません。
 - 筆者自身の運転、修理、整備、所有体験として書いてはいけません。
-- 公開情報、販売情報、専門家の説明、オーナーの体験談を区別してください。
-- 確認できない価格、年式、走行距離、修理費、故障原因、店舗名、地域情報を創作しないでください。
-- 整備や安全に関する内容は、専門店への確認を促してください。
+- 公開情報、歴史資料、イベント観察、専門家の説明、オーナーの話を区別してください。
+- 確認できない年式、仕様、価格、店舗名、地域情報、出来事を創作しないでください。
+- 整備や安全に関する内容は一般的な知識にとどめ、専門店への確認を促してください。
 
 ### 本文構造
 本文は以下の構造にする：
-1. 空冷VWを調べるテーマ
-2. 購入前に確認したいポイント
-3. 維持費や故障についての注意点
-4. 専門店やオーナーに聞きたいこと
-5. 購入を急がず判断するためのまとめ
+1. 紹介する文化・歴史・イベントのテーマ
+2. 背景や用語の説明
+3. 日本の空冷VW文化との関係
+4. 海外読者にも伝わる見どころ
+5. 事実と個人の感想を分けたまとめ
 
 ### 英語タイトル生成ルール
+### 英語タイトル生成ルール
 次の語を中心に、海外の旧車ファンにも意味が伝わるタイトルにする：
-Air-cooled Beetle / Buying Guide / Classic Car / Japan
+Air-cooled Beetle / VW History / Classic Car Culture / Japan
 
 追加できる語：
-Purchase Research / Ownership Costs / Inspection Checklist /
-Classic Car Advice / Maintenance Planning / Beetle Guide
+Japanese Car Culture / Beetle History / Design Story /
+VW Event / Classic Car Community / Air-cooled Culture
 
-タイトルにFujiokaなどの地域名を入れてはいけません。
+タイトルにFujiokaなど確認できない地域名を入れてはいけません。
 筆者が所有者であると誤解される表現を使ってはいけません。
 
 ### タグ生成ルール
 固定タグ：
-aircooled / beetle / classiccar / japan / buyingguide / research
+aircooled / beetle / classiccar / japan / vwculture / history
 
 可変タグ：
-ownershipcost / inspection / maintenance / classiccaradvice /
-volkswagen / restoration
+history / design / event / community / japaneseclassiccar / volkswagen
 
 ### 出力形式
 {
