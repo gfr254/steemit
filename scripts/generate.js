@@ -24,7 +24,6 @@ async function generate() {
 5. 事実と個人の感想を分けたまとめ
 
 ### 英語タイトル生成ルール
-### 英語タイトル生成ルール
 次の語を中心に、海外の旧車ファンにも意味が伝わるタイトルにする：
 Air-cooled Beetle / VW History / Classic Car Culture / Japan
 
