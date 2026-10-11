@@ -114,7 +114,11 @@ async function ensureRcHeadroom(op) {
     const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(config.resource_dynamics_params.resource_unit);
     estimated += numerator / (BigInt(curve.coeff_b) + pool) + 1n;
   }
-  const current = BigInt(account.rc_manabar.current_mana);
+  const maxMana = BigInt(account.max_rc);
+  const storedMana = BigInt(account.rc_manabar.current_mana);
+  const elapsed = BigInt(Math.max(0, Math.floor(Date.now() / 1000) - Number(account.rc_manabar.last_update_time)));
+  const regenerated = elapsed * maxMana / 432000n;
+  const current = storedMana + regenerated > maxMana ? maxMana : storedMana + regenerated;
   const threshold = estimated * 5n / 4n;
   console.log("RC preflight", JSON.stringify({ current: current.toString(), estimated: estimated.toString(), threshold: threshold.toString(), txSize }));
   if (current < threshold) throw new Error("Insufficient RC headroom; no transaction broadcast");
