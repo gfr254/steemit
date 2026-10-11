@@ -77,6 +77,48 @@ async function safePost(op) {
   }
 }
 
+async function ensureRcHeadroom(op) {
+  async function rpc(method, params) {
+    const response = await fetch("https://api.justyy.com", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 })
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.error) throw new Error("RC preflight failed: " + (payload.error?.message || response.status));
+    return payload.result;
+  }
+  const results = await Promise.all([
+    rpc("rc_api.find_rc_accounts", { accounts: [author] }),
+    rpc("rc_api.get_resource_params", {}),
+    rpc("rc_api.get_resource_pool", {}),
+    rpc("condenser_api.get_dynamic_global_properties", [])
+  ]);
+  const account = results[0].rc_accounts?.find(item => item.account === author);
+  const params = results[1];
+  const pools = results[2];
+  const globals = results[3];
+  if (!account) throw new Error("RC preflight could not find the posting account");
+  const txSize = Buffer.byteLength(JSON.stringify(op), "utf8") + 512;
+  const comment = op[1];
+  const sizes = params.size_info;
+  const state = sizes.resource_state_bytes;
+  const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length + state.comment_object_parent_permlink_char_size * comment.parent_permlink.length;
+  const counts = { resource_history_bytes: txSize, resource_state_bytes: stateBytes, resource_execution_time: sizes.resource_execution_time.comment_operation_exec_time };
+  const vestingUnits = BigInt(globals.total_vesting_shares.split(" ")[0].replace(".", ""));
+  const rcRegen = vestingUnits / 144000n;
+  let estimated = 0n;
+  for (const [name, count] of Object.entries(counts)) {
+    const config = params.resource_params[name];
+    const curve = config.price_curve_params;
+    const pool = BigInt(pools.resource_pool[name].pool);
+    const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(config.resource_dynamics_params.resource_unit);
+    estimated += numerator / (BigInt(curve.coeff_b) + pool) + 1n;
+  }
+  const current = BigInt(account.rc_manabar.current_mana);
+  const threshold = estimated * 5n / 4n;
+  console.log("RC preflight", JSON.stringify({ current: current.toString(), estimated: estimated.toString(), threshold: threshold.toString(), txSize }));
+  if (current < threshold) throw new Error("Insufficient RC headroom; no transaction broadcast");
+}
 async function postToSteemit(article) {
   console.log(article.target ? "🚀 Steemit 既存投稿を更新中..." : "🚀 Steemit 投稿中...");
 
@@ -151,6 +193,7 @@ ${article.body_ko}
     },
   ];
 
+  await ensureRcHeadroom(op);
   const result = await safePost(op);
 
   console.log("✔ 投稿成功！");
