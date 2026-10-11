@@ -77,11 +77,64 @@ async function safePost(op) {
   }
 }
 
+async function ensureRcHeadroom(op) {
+  async function rpc(method, params) {
+    const response = await fetch("https://api.justyy.com", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 })
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.error) throw new Error("RC preflight failed: " + (payload.error?.message || response.status));
+    return payload.result;
+  }
+  const results = await Promise.all([
+    rpc("rc_api.find_rc_accounts", { accounts: [author] }),
+    rpc("rc_api.get_resource_params", {}),
+    rpc("rc_api.get_resource_pool", {}),
+    rpc("condenser_api.get_dynamic_global_properties", [])
+  ]);
+  const account = results[0].rc_accounts?.find(item => item.account === author);
+  const params = results[1];
+  const pools = results[2];
+  const globals = results[3];
+  if (!account) throw new Error("RC preflight could not find the posting account");
+  const txSize = Buffer.byteLength(JSON.stringify(op), "utf8") + 512;
+  const comment = op[1];
+  const sizes = params.size_info;
+  const state = sizes.resource_state_bytes;
+  const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length + state.comment_object_parent_permlink_char_size * comment.parent_permlink.length;
+  const counts = { resource_history_bytes: txSize, resource_state_bytes: stateBytes, resource_execution_time: sizes.resource_execution_time.comment_operation_exec_time };
+  const vestingUnits = BigInt(globals.total_vesting_shares.split(" ")[0].replace(".", ""));
+  const rcRegen = vestingUnits / 144000n;
+  let estimated = 0n;
+  for (const [name, count] of Object.entries(counts)) {
+    const config = params.resource_params[name];
+    const curve = config.price_curve_params;
+    const pool = BigInt(pools.resource_pool[name].pool);
+    const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(config.resource_dynamics_params.resource_unit);
+    estimated += numerator / (BigInt(curve.coeff_b) + pool) + 1n;
+  }
+  const maxMana = BigInt(account.max_rc);
+  const storedMana = BigInt(account.rc_manabar.current_mana);
+  const elapsed = BigInt(Math.max(0, Math.floor(Date.now() / 1000) - Number(account.rc_manabar.last_update_time)));
+  const regenerated = elapsed * maxMana / 432000n;
+  const current = storedMana + regenerated > maxMana ? maxMana : storedMana + regenerated;
+  const threshold = estimated * 5n / 4n;
+  console.log("RC preflight", JSON.stringify({ current: current.toString(), estimated: estimated.toString(), threshold: threshold.toString(), txSize }));
+  if (current < threshold) throw new Error("Insufficient RC headroom; no transaction broadcast");
+}
 async function postToSteemit(article) {
-  console.log("🚀 Steemit 投稿中...");
+  console.log(article.target ? "🚀 Steemit 既存投稿を更新中..." : "🚀 Steemit 投稿中...");
 
   // ====== permlink（禁止文字 T/Z を除去） ======
-  const permlink =
+  const target = article.target;
+  if (target) {
+    if (target.author !== author) throw new Error("Target author mismatch");
+    const existing = await client.database.getContent(author, target.permlink);
+    if (!existing || existing.title !== "*" || existing.body !== "*") throw new Error("Target is no longer a placeholder; refusing to overwrite");
+  }
+
+  const permlink = target ? target.permlink :
     "beetle-" +
     new Date()
       .toISOString()
@@ -134,8 +187,8 @@ ${article.body_ko}
   const op = [
     "comment",
     {
-      parent_author: "",
-      parent_permlink: "life",
+      parent_author: target ? target.parent_author : "",
+      parent_permlink: target ? target.parent_permlink : "life",
       author: author,
       permlink: permlink,
       title: article.title.trim(),
@@ -144,6 +197,7 @@ ${article.body_ko}
     },
   ];
 
+  await ensureRcHeadroom(op);
   const result = await safePost(op);
 
   console.log("✔ 投稿成功！");
@@ -152,5 +206,10 @@ ${article.body_ko}
 
 (async () => {
   const article = loadArticle();
+  if (process.env.GITHUB_REF !== "refs/heads/main" || process.env.GITHUB_EVENT_NAME !== "schedule") {
+    console.log("DRY RUN — no Steemit transaction broadcast");
+    console.log(JSON.stringify(article, null, 2));
+    return;
+  }
   await postToSteemit(article);
 })();
