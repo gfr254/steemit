@@ -78,10 +78,17 @@ async function safePost(op) {
 }
 
 async function postToSteemit(article) {
-  console.log("🚀 Steemit 投稿中...");
+  console.log(article.target ? "🚀 Steemit 既存投稿を更新中..." : "🚀 Steemit 投稿中...");
 
   // ====== permlink（禁止文字 T/Z を除去） ======
-  const permlink =
+  const target = article.target;
+  if (target) {
+    if (target.author !== author) throw new Error("Target author mismatch");
+    const existing = await client.database.getContent(author, target.permlink);
+    if (!existing || existing.title !== "*" || existing.body !== "*") throw new Error("Target is no longer a placeholder; refusing to overwrite");
+  }
+
+  const permlink = target ? target.permlink :
     "beetle-" +
     new Date()
       .toISOString()
@@ -134,8 +141,8 @@ ${article.body_ko}
   const op = [
     "comment",
     {
-      parent_author: "",
-      parent_permlink: "life",
+      parent_author: target ? target.parent_author : "",
+      parent_permlink: target ? target.parent_permlink : "life",
       author: author,
       permlink: permlink,
       title: article.title.trim(),
@@ -152,5 +159,10 @@ ${article.body_ko}
 
 (async () => {
   const article = loadArticle();
+  if (process.env.GITHUB_REF !== "refs/heads/main" || process.env.GITHUB_EVENT_NAME !== "schedule") {
+    console.log("DRY RUN — no Steemit transaction broadcast");
+    console.log(JSON.stringify(article, null, 2));
+    return;
+  }
   await postToSteemit(article);
 })();
