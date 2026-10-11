@@ -77,7 +77,7 @@ history / design / event / community / japaneseclassiccar / volkswagen
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: "You generate high-quality multilingual JSON for Steemit." },
-      { role: "user", content: prompt + (target ? "\n\n編集対象の元投稿日: " + target.created + "。既存投稿を編集するため、permlinkを変えない。" : "\n\n編集対象なし。通常の新規記事を生成する。") },
+      { role: "user", content: prompt + (target ? "\n\n編集対象の元投稿日: " + target.created + "。既存投稿を編集するため、permlinkを変えない。" : "\n\n編集対象なし。通常の新規記事を生成する。") }
     ],
     response_format: { type: "json_object" }
   });
