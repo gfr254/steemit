@@ -57,6 +57,12 @@ async function generate() {
 
   const article = JSON.parse(response.choices[0].message.content);
   article.target = target ? { author: target.author, permlink: target.permlink, parent_author: target.parent_author, parent_permlink: target.parent_permlink, created: target.created } : null;
+  const articleText = [article.title, article.body_ja, article.body_en, article.body_es, article.body_ko].join("\n");
+  const riskyPatterns = ["[0-9]","safe|safety|security|drive|driving|repair|maintenance|production|manufactur|histor|popular|famous|many people|loved|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone","安全|安心|運転|ドライブ|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も","seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal","안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
+  const risky = riskyPatterns.find(pattern => pattern.test(articleText));
+  if (risky) throw new Error("Draft rejected by factuality guard: " + risky.source);
+  const markers = { body_ja: ["印象", "感じ", "見え", "かもしれない", "ように"], body_en: ["seem", "impression", "may", "might", "could"], body_es: ["parece", "impresión", "impresion", "puede", "podría", "podria"], body_ko: ["느낌", "인상", "듯", "수 있", "보일"] };
+  for (const [field, choices] of Object.entries(markers)) if (!choices.some(marker => article[field].toLowerCase().includes(marker.toLowerCase()))) throw new Error("Draft rejected: " + field + " lacks cautious, subjective wording");
 
   fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
   console.log("✔ 整備固定記事生成完了: article.json に保存しました");
