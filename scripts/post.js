@@ -123,7 +123,34 @@ async function ensureRcHeadroom(op) {
   console.log("RC preflight", JSON.stringify({ current: current.toString(), estimated: estimated.toString(), threshold: threshold.toString(), txSize }));
   if (current < threshold) throw new Error("Insufficient RC headroom; no transaction broadcast");
 }
-async function postToSteemit(article) {
+function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("en"); }
+    function normalizeBody(value) { return String(value ?? "").replace(/!\[[^\]]*\]\([^)]+\)/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/<[^>]*>/g, " ").normalize("NFKC").toLocaleLowerCase("en").replace(/\s+/g, " ").trim(); }
+    async function listAuthorHistory() {
+      const posts = new Map(); let startPermlink = ""; let beforeDate = "2100-01-01T00:00:00";
+      for (let page = 0; page < 100; page += 1) {
+        let rows = null, lastError = null;
+        for (const url of RPC_NODES) {
+          try {
+            const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "condenser_api.get_discussions_by_author_before_date", params: [author, startPermlink, beforeDate, 100], id: page + 1 }) });
+            const payload = await response.json();
+            if (!response.ok || payload.error || !Array.isArray(payload.result)) throw new Error("Steemit history RPC failed");
+            rows = payload.result; break;
+          } catch (error) { lastError = error; }
+        }
+        if (!rows) throw lastError || new Error("Steemit history unavailable; publication stopped");
+        if (rows.length === 0) return [...posts.values()];
+        const priorCount = posts.size;
+        for (const post of rows) if (post.author === author && post.permlink) posts.set(post.permlink, post);
+        if (posts.size === priorCount && rows.length === 100) throw new Error("Steemit history pagination did not advance; publication stopped");
+        if (rows.length < 100) return [...posts.values()];
+        const oldest = rows.at(-1);
+        if (!oldest?.permlink || !oldest?.created) throw new Error("Steemit history returned an invalid cursor; publication stopped");
+        startPermlink = oldest.permlink; beforeDate = oldest.created;
+      }
+      throw new Error("Steemit history exceeds the 10,000-post duplicate-check limit; publication stopped");
+    }
+
+    async function postToSteemit(article) {
   console.log(article.target ? "🚀 Steemit 既存投稿を更新中..." : "🚀 Steemit 投稿中...");
 
   // ====== permlink（禁止文字 T/Z を除去） ======
@@ -197,7 +224,16 @@ ${article.body_ko}
     },
   ];
 
-  await ensureRcHeadroom(op);
+  const candidateTitle = normalizeTitle(article.title);
+      const candidateBody = normalizeBody(bodyWithImage);
+      const history = await listAuthorHistory();
+      const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (candidateBody.length >= 300 && normalizeBody(entry.body) === candidateBody)));
+      if (duplicate) {
+        console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existingPermlink: duplicate.permlink }));
+        return { skipped: true, permlink: duplicate.permlink };
+      }
+
+      await ensureRcHeadroom(op);
   const result = await safePost(op);
 
   console.log("✔ 投稿成功！");
