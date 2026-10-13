@@ -131,7 +131,7 @@ function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").re
         let rows = null, lastError = null;
         for (const url of RPC_NODES) {
           try {
-            const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "condenser_api.get_discussions_by_author_before_date", params: [author, startPermlink, beforeDate, 100], id: page + 1 }) });
+            const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "condenser_api.get_discussions_by_author_before_date", params: [author, startPermlink, beforeDate, 100], id: page + 1 }), signal: AbortSignal.timeout(15_000) });
             const payload = await response.json();
             if (!response.ok || payload.error || !Array.isArray(payload.result)) throw new Error("Steemit history RPC failed");
             rows = payload.result; break;
