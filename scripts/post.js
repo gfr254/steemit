@@ -155,11 +155,20 @@ function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").re
 
   // ====== permlink（禁止文字 T/Z を除去） ======
   const target = article.target;
-  if (target) {
-    if (target.author !== author) throw new Error("Target author mismatch");
-    const existing = await client.database.getContent(author, target.permlink);
-    if (!existing || existing.title !== "*" || existing.body !== "*") throw new Error("Target is no longer a placeholder; refusing to overwrite");
-  }
+      let verifiedHistory = null;
+      if (target) {
+        if (target.author !== author) throw new Error("Target author mismatch");
+        const existing = await client.database.getContent(author, target.permlink);
+        if (!existing) throw new Error("Target post no longer exists; refusing to overwrite");
+        if (target.replaceDuplicate === true) {
+          if (!target.expectedTitle || existing.title !== target.expectedTitle) throw new Error("Duplicate target changed after generation; refusing to overwrite");
+          verifiedHistory = await listAuthorHistory();
+          const sameTitle = verifiedHistory.filter(item => normalizeTitle(item.title) === normalizeTitle(target.expectedTitle)).sort((x, y) => String(x.created).localeCompare(String(y.created)));
+          if (sameTitle.length < 2 || sameTitle[1]?.permlink !== target.permlink) throw new Error("Target is not the next duplicate after the oldest copy; refusing to overwrite");
+        } else if (existing.title !== "*" || existing.body !== "*") {
+          throw new Error("Target is no longer a placeholder; refusing to overwrite");
+        }
+      }
 
   const permlink = target ? target.permlink :
     "beetle-" +
@@ -226,7 +235,7 @@ ${article.body_ko}
 
   const candidateTitle = normalizeTitle(article.title);
       const candidateBody = normalizeBody(bodyWithImage);
-      const history = await listAuthorHistory();
+      const history = verifiedHistory || await listAuthorHistory();
       const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (candidateBody.length >= 300 && normalizeBody(entry.body) === candidateBody)));
       if (duplicate) {
         console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existingPermlink: duplicate.permlink }));
