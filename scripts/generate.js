@@ -53,6 +53,44 @@ async function findOldestPlaceholder() {
       return sorted[0];
     }
     
+async function generateDraft(prompt, target) {
+  let retryPrompt = prompt;
+  let rejection = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You generate high-quality multilingual JSON for Steemit." },
+        { role: "user", content: retryPrompt }
+      ],
+      response_format: { type: "json_object" }
+    });
+    const article = JSON.parse(response.choices[0].message.content);
+    article.target = target ? { author: target.author, permlink: target.permlink, parent_author: target.parent_author, parent_permlink: target.parent_permlink, created: target.created, replaceDuplicate: Boolean(target.replaceDuplicate), expectedTitle: target.expectedTitle } : null;
+    rejection = validateDraft(article, target);
+    if (!rejection) return article;
+    if (attempt < 3) {
+      console.warn("Draft rejected by factuality guard; requesting a safer rewrite (attempt " + (attempt + 1) + "/3): " + rejection);
+      retryPrompt += "\n\nYour previous draft failed this accuracy check: " + rejection + ". Rewrite all four language versions from scratch. Keep them as subjective visual impressions only; do not make factual claims, and use cautious wording in every language.";
+    }
+  }
+  throw new Error(rejection || "Draft failed factuality validation");
+}
+
+function validateDraft(article, target) {
+  if (!target) return null;
+  const articleText = [article.title, article.body_ja, article.body_en, article.body_es, article.body_ko].join("\n");
+  const riskyPatterns = ["[0-9]", "safe|safety|security|drive|driving|repair|maintenance|production|manufactur|histor|popular|famous|many people|loved|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone", "安全|安心|運転|ドライブ|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も", "seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal", "안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
+  const risky = riskyPatterns.find(pattern => pattern.test(articleText));
+  if (risky) return "Draft rejected by factuality guard: " + (articleText.match(risky)?.[0] || risky.source);
+  const markers = { body_ja: ["印象", "感じ", "見え", "かもしれない", "ように"], body_en: ["seem", "impression", "may", "might", "could"], body_es: ["parece", "impresión", "impresion", "puede", "podría", "podria"], body_ko: ["느낌", "인상", "듯", "수 있", "보일"] };
+  for (const [field, choices] of Object.entries(markers)) {
+    const text = typeof article[field] === "string" ? article[field] : "";
+    if (!choices.some(marker => text.toLowerCase().includes(marker.toLowerCase()))) return "Draft rejected: " + field + " lacks cautious, subjective wording";
+  }
+  return null;
+}
+
 async function generate() {
   const target = await findOldestPlaceholder();
   if (target && target.permlink === "3tmtka" && process.env.GITHUB_REF === "refs/heads/main" && process.env.GITHUB_EVENT_NAME === "schedule") {
@@ -85,26 +123,7 @@ async function generate() {
         ].join("\n")
   const legacyPrompt = "\nあなたは「空冷かずひろ」のSteemit多言語投稿AIです。\nテーマは、空冷VWの文化、歴史、日本の旧車事情、イベント、デザインを海外読者に紹介する内容に固定します。\n\n重要な前提:\n- 筆者は現時点で空冷VWを所有していません。\n- 筆者自身の運転、修理、整備、所有体験として書いてはいけません。\n- 公開情報、歴史資料、イベント観察、専門家の説明、オーナーの話を区別してください。\n- 確認できない年式、仕様、価格、店舗名、地域情報、出来事を創作しないでください。\n- 整備や安全に関する内容は一般的な知識にとどめ、専門店への確認を促してください。\n\n### 本文構造\n本文は以下の構造にする：\n1. 紹介する文化・歴史・イベントのテーマ\n2. 背景や用語の説明\n3. 日本の空冷VW文化との関係\n4. 海外読者にも伝わる見どころ\n5. 事実と個人の感想を分けたまとめ\n\n### 英語タイトル生成ルール\n次の語を中心に、海外の旧車ファンにも意味が伝わるタイトルにする：\nAir-cooled Beetle / VW History / Classic Car Culture / Japan\n\n追加できる語：\nJapanese Car Culture / Beetle History / Design Story /\nVW Event / Classic Car Community / Air-cooled Culture\n\nタイトルにFujiokaなど確認できない地域名を入れてはいけません。\n筆者が所有者であると誤解される表現を使ってはいけません。\n\n### タグ生成ルール\n固定タグ：\naircooled / beetle / classiccar / japan / vwculture / history\n\n可変タグ：\nhistory / design / event / community / japaneseclassiccar / volkswagen\n\n### 出力形式\n{\n  \"title\": \"英語タイトル\",\n  \"body_ja\": \"本文（日本語）\",\n  \"body_en\": \"本文（英語）\",\n  \"body_es\": \"本文（スペイン語）\",\n  \"body_ko\": \"본문 (한국어)\",\n  \"tags\": [\"固定タグ＋可変タグ\"]\n}";
   const prompt = target ? repairPrompt : legacyPrompt;
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: "You generate high-quality multilingual JSON for Steemit." },
-      { role: "user", content: prompt }
-    ],
-    response_format: { type: "json_object" }
-  });
-
-  const article = JSON.parse(response.choices[0].message.content);
-  article.target = target ? { author: target.author, permlink: target.permlink, parent_author: target.parent_author, parent_permlink: target.parent_permlink, created: target.created, replaceDuplicate: Boolean(target.replaceDuplicate), expectedTitle: target.expectedTitle } : null;
-  if (target) {
-    const articleText = [article.title, article.body_ja, article.body_en, article.body_es, article.body_ko].join("\n");
-    const riskyPatterns = ["[0-9]","safe|safety|security|drive|driving|repair|maintenance|production|manufactur|histor|popular|famous|many people|loved|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone","安全|安心|運転|ドライブ|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も","seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal","안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
-    const risky = riskyPatterns.find(pattern => pattern.test(articleText));
-    if (risky) throw new Error("Draft rejected by factuality guard: " + risky.source);
-    const markers = { body_ja: ["印象", "感じ", "見え", "かもしれない", "ように"], body_en: ["seem", "impression", "may", "might", "could"], body_es: ["parece", "impresión", "impresion", "puede", "podría", "podria"], body_ko: ["느낌", "인상", "듯", "수 있", "보일"] };
-    for (const [field, choices] of Object.entries(markers)) if (!choices.some(marker => article[field].toLowerCase().includes(marker.toLowerCase()))) throw new Error("Draft rejected: " + field + " lacks cautious, subjective wording");
-  
-  }
+  const article = await generateDraft(prompt, target);
   fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
   console.log("✔ 整備固定記事生成完了: article.json に保存しました");
 }
