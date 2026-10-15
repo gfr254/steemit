@@ -160,7 +160,7 @@ function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").re
       let verifiedHistory = null;
       if (target) {
         if (target.author !== author) throw new Error("Target author mismatch");
-        const existing = await client.database.getContent(author, target.permlink);
+        const existing = await client.database.call("get_content", [author, target.permlink]);
         if (!existing) throw new Error("Target post no longer exists; refusing to overwrite");
         if (target.replaceDuplicate === true) {
           if (!target.expectedTitle || existing.title !== target.expectedTitle) throw new Error("Duplicate target changed after generation; refusing to overwrite");
