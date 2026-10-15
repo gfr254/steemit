@@ -71,10 +71,22 @@ async function generateDraft(prompt, target) {
     if (!rejection) return article;
     if (attempt < 3) {
       console.warn("Draft rejected by factuality guard; requesting a safer rewrite (attempt " + (attempt + 1) + "/3): " + rejection);
-      retryPrompt += "\n\nYour previous draft failed this accuracy check: " + rejection + ". Rewrite all four language versions from scratch. Keep them as subjective visual impressions only; do not make factual claims, and use cautious wording in every language.";
+      retryPrompt += "\n\n" + buildRetryInstruction(rejection) + " Rewrite all four language versions from scratch, keep their meaning aligned, and do not introduce unsupported claims.";
     }
   }
   throw new Error(rejection || "Draft failed factuality validation");
+}
+
+function buildRetryInstruction(rejection) {
+  const missingMarker = rejection.match(/^Draft rejected: (body_(?:ja|en|es|ko)) lacks cautious, subjective wording$/);
+  if (missingMarker) {
+    const examples = { body_ja: "印象, 感じます, 見えます, かもしれません, ように見えます", body_en: "seem, seems, impression, may, might, could", body_es: "parece, impresión, puede, podría", body_ko: "느낌, 인상, 듯, 수 있, 보일" };
+    const field = missingMarker[1];
+    return "Validation feedback: " + field + " needs explicit subjective wording. Add at least one exact phrase from this accepted list to that body: " + examples[field] + ". Keep it as a visual impression, not a factual claim.";
+  }
+  const guardedTerm = rejection.match(/^Draft rejected by factuality guard: (.+)$/);
+  if (guardedTerm) return "Validation feedback: remove the exact guarded term or unsupported claim \"" + guardedTerm[1] + "\" from the article. Do not replace it with a different factual claim.";
+  return "Validation feedback: correct this issue without adding unsupported factual claims: " + rejection + ".";
 }
 
 function validateDraft(article, target) {
@@ -118,7 +130,7 @@ async function generate() {
           "Original title: " + String(target.title || ""),
           "Source article text (use this as the factual source; it may be truncated):\n" + String(target.body || "").slice(0, 8000),
           "Do not reuse or closely paraphrase these previous titles: " + previousTitles,
-          "Use only points supported by the source text. Do not invent dates, technical specifications, prices, statistics, named people or places, or personal experience. Do not use digits. Avoid claims about safety, popularity, history, or owners unless the source directly supports them. Write three concise paragraphs per language, with cautious subjective wording in Japanese, English, Spanish, and Korean. Return only JSON with a specific, distinct English title, body_ja, body_en, body_es, body_ko, and relevant lowercase ASCII tags."
+          "Use only points supported by the source text. Do not invent dates, technical specifications, prices, statistics, named people or places, or personal experience. Do not use digits. Avoid claims about safety, popularity, history, or owners unless the source directly supports them. Write three concise paragraphs per language. Each body must include at least one explicit subjective marker: Japanese use 印象, 感じます, 見えます, かもしれません, or ように見えます; English use seem, seems, impression, may, might, or could; Spanish use parece, impresión, puede, or podría; Korean use 느낌, 인상, 듯, 수 있, or 보일. Return only JSON with a specific, distinct English title, body_ja, body_en, body_es, body_ko, and relevant lowercase ASCII tags."
         ].join("\n")
         : [
           "You are writing one original, gentle design essay about an air-cooled VW for a multilingual Steemit audience.",
