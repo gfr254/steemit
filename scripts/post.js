@@ -51,6 +51,8 @@ function loadArticle() {
     throw new Error("❌ article.json が JSON として読み込めません（破損）");
   }
 
+  if (json.skip === true) return json;
+
   const required = ["title", "body_ja", "body_en", "body_es", "body_ko"];
   for (const key of required) {
     if (!json[key] || json[key].length < 10) {
@@ -251,6 +253,10 @@ ${article.body_ko}
 
 (async () => {
   const article = loadArticle();
+  if (article.skip === true) {
+    console.log("No replacement target remains; no Steemit transaction broadcast.");
+    return;
+  }
   if (process.env.GITHUB_REF !== "refs/heads/main" || process.env.GITHUB_EVENT_NAME !== "schedule") {
     console.log("DRY RUN — no Steemit transaction broadcast");
     console.log(JSON.stringify(article, null, 2));
