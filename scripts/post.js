@@ -1,6 +1,7 @@
 import { Client, PrivateKey } from "dsteem";
 import fs from "fs";
-import { shouldCheckDuplicateBody } from "./publication-safety.js";
+import { isAuthorizedManualDuplicateTitleUpdate, shouldCheckDuplicateBody } from "./publication-safety.js";
+import { fetchRcPreflight } from "./rc-preflight.js";
 
 // ====== 投稿可能な RPC ノードのみ ======
 const RPC_NODES = [
@@ -85,21 +86,7 @@ async function safePost(op) {
 }
 
 async function ensureRcHeadroom(op) {
-  async function rpc(method, params) {
-    const response = await fetch("https://api.justyy.com", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 })
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.error) throw new Error("RC preflight failed: " + (payload.error?.message || response.status));
-    return payload.result;
-  }
-  const results = await Promise.all([
-    rpc("rc_api.find_rc_accounts", { accounts: [author] }),
-    rpc("rc_api.get_resource_params", {}),
-    rpc("rc_api.get_resource_pool", {}),
-    rpc("condenser_api.get_dynamic_global_properties", [])
-  ]);
+  const results = await fetchRcPreflight({ author });
   const account = results[0].rc_accounts?.find(item => item.account === author);
   const params = results[1];
   const pools = results[2];
@@ -266,7 +253,19 @@ ${article.body_ko}
     console.log("No replacement target remains; no Steemit transaction broadcast.");
     return;
   }
-  if (process.env.GITHUB_REF !== "refs/heads/main" || process.env.GITHUB_EVENT_NAME !== "schedule") {
+  const scheduledMainRun = process.env.GITHUB_REF === "refs/heads/main" && process.env.GITHUB_EVENT_NAME === "schedule";
+  const authorizedRunNumber = "142";
+  const manualDuplicateUpdate = isAuthorizedManualDuplicateTitleUpdate({
+    eventName: process.env.GITHUB_EVENT_NAME,
+    ref: process.env.GITHUB_REF,
+    runNumber: process.env.GITHUB_RUN_NUMBER,
+    expectedRunNumber: authorizedRunNumber,
+    article
+  });
+  if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch" && process.env.GITHUB_RUN_NUMBER === authorizedRunNumber && !manualDuplicateUpdate) {
+    throw new Error("One-time manual update refused: only a verified title-only duplicate correction is permitted");
+  }
+  if (!scheduledMainRun && !manualDuplicateUpdate) {
     console.log("DRY RUN — no Steemit transaction broadcast");
     console.log(JSON.stringify(article, null, 2));
     return;
