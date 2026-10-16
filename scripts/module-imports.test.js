@@ -12,3 +12,8 @@ test("generator imports helpers from modules that export them", async () => {
   assert.equal(typeof shouldCheckDuplicateBody, "function");
   assert.equal(typeof validateSubjectiveMarkers, "function");
 });
+
+test("post imports the tested RC preflight helper", async () => {
+  const source = await readFile(new URL("./post.js", import.meta.url), "utf8");
+  assert.ok(source.includes("import { fetchRcPreflight } from \"./rc-preflight.js\""));
+});
