@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import fs from "fs";
-import { buildSubjectiveMarkerRetryInstruction, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
+import { buildSubjectiveMarkerRetryInstruction, isNonPersonalTitle, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -66,7 +66,7 @@ async function generateUniqueTitle(target, existingTitles) {
       messages: [
         { role: "system", content: "Generate a concise, accurate English title for an existing Steemit article. Return JSON only." },
         { role: "user", content: [
-          "Suggest a new title for this already-published article. Only the title will be updated; its body and URL must remain unchanged.",
+          "Suggest a new title for this already-published article. Only the title will be updated; its body and URL must remain unchanged. Do not use first person or imply that the author owns, drives, repairs, or maintains the car.",
           "Current title: " + String(target.title || ""),
           "Article text (factual source):\n" + String(target.body || "").slice(0, 8000),
           "Existing titles that must not be reused or closely paraphrased:\n" + titleList,
@@ -78,8 +78,8 @@ async function generateUniqueTitle(target, existingTitles) {
     });
     const draft = JSON.parse(response.choices[0].message.content);
     const title = String(draft.title || "").trim();
-    if (title && !existingTitles.some((existing) => normalizeTitle(existing) === normalizeTitle(title))) return title;
-    correction = "The proposed title was empty or already exists. Choose a clearly different, specific title; do not change the article body.";
+    if (isNonPersonalTitle(title) && !existingTitles.some((existing) => normalizeTitle(existing) === normalizeTitle(title))) return title;
+    correction = "The proposed title was empty, already exists, or implies personal ownership. Choose a clearly different, specific title without first-person wording; do not change the article body.";
     console.warn("Title-only replacement title collided with history; retrying (attempt " + (attempt + 1) + "/3).");
   }
   throw new Error("Could not generate a unique title for the published duplicate; no post was updated");
