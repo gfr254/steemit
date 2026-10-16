@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import fs from "fs";
-import { buildSubjectiveMarkerRetryInstruction, isNonPersonalTitle, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
+import { buildSubjectiveMarkerRetryInstruction, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
+import { isNonPersonalTitle } from "./publication-safety.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
