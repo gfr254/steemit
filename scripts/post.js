@@ -1,6 +1,6 @@
 import { Client, PrivateKey } from "dsteem";
 import fs from "fs";
-import { shouldCheckDuplicateBody } from "./publication-safety.js";
+import { isAuthorizedManualDuplicateTitleUpdate, shouldCheckDuplicateBody } from "./publication-safety.js";
 
 // ====== 投稿可能な RPC ノードのみ ======
 const RPC_NODES = [
@@ -266,7 +266,19 @@ ${article.body_ko}
     console.log("No replacement target remains; no Steemit transaction broadcast.");
     return;
   }
-  if (process.env.GITHUB_REF !== "refs/heads/main" || process.env.GITHUB_EVENT_NAME !== "schedule") {
+  const scheduledMainRun = process.env.GITHUB_REF === "refs/heads/main" && process.env.GITHUB_EVENT_NAME === "schedule";
+  const authorizedRunNumber = "141";
+  const manualDuplicateUpdate = isAuthorizedManualDuplicateTitleUpdate({
+    eventName: process.env.GITHUB_EVENT_NAME,
+    ref: process.env.GITHUB_REF,
+    runNumber: process.env.GITHUB_RUN_NUMBER,
+    expectedRunNumber: authorizedRunNumber,
+    article
+  });
+  if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch" && process.env.GITHUB_RUN_NUMBER === authorizedRunNumber && !manualDuplicateUpdate) {
+    throw new Error("One-time manual update refused: only a verified title-only duplicate correction is permitted");
+  }
+  if (!scheduledMainRun && !manualDuplicateUpdate) {
     console.log("DRY RUN — no Steemit transaction broadcast");
     console.log(JSON.stringify(article, null, 2));
     return;
