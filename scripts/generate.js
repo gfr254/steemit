@@ -35,7 +35,7 @@ async function findOldestPlaceholder() {
       for (const group of grouped.values()) {
         if (group.length < 2) continue;
         const chronological = group.slice().sort((x, y) => String(x.created).localeCompare(String(y.created)));
-        for (const item of chronological.slice(1)) replacements.push({ ...item, replaceDuplicate: true, expectedTitle: item.title });
+        for (const item of chronological.slice(1)) replacements.push({ ...item, replaceDuplicate: true, replaceTitleOnly: true, expectedTitle: item.title });
       }
       replacements.sort((x, y) => String(x.created).localeCompare(String(y.created)));
       const titleHistory = [...new Set(existingTitles)];
@@ -55,6 +55,34 @@ async function findOldestPlaceholder() {
     }
     
 function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("en"); }
+
+async function generateUniqueTitle(target, existingTitles) {
+  const titleList = [...new Set(existingTitles)].slice(0, 100).map((title) => "- " + title).join("\n") || "- none";
+  let correction = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Generate a concise, accurate English title for an existing Steemit article. Return JSON only." },
+        { role: "user", content: [
+          "Suggest a new title for this already-published article. Only the title will be updated; its body and URL must remain unchanged.",
+          "Current title: " + String(target.title || ""),
+          "Article text (factual source):\n" + String(target.body || "").slice(0, 8000),
+          "Existing titles that must not be reused or closely paraphrased:\n" + titleList,
+          "Use a specific title supported by the article text. Do not add unsupported facts or dates. Return JSON with one property: title.",
+          correction
+        ].filter(Boolean).join("\n") }
+      ],
+      response_format: { type: "json_object" }
+    });
+    const draft = JSON.parse(response.choices[0].message.content);
+    const title = String(draft.title || "").trim();
+    if (title && !existingTitles.some((existing) => normalizeTitle(existing) === normalizeTitle(title))) return title;
+    correction = "The proposed title was empty or already exists. Choose a clearly different, specific title; do not change the article body.";
+    console.warn("Title-only replacement title collided with history; retrying (attempt " + (attempt + 1) + "/3).");
+  }
+  throw new Error("Could not generate a unique title for the published duplicate; no post was updated");
+}
 
 async function generateDraft(prompt, target, existingTitles = []) {
   let retryPrompt = prompt;
@@ -115,6 +143,13 @@ async function generate() {
   const history = await findOldestPlaceholder();
   const target = history.target;
   const existingTitles = history.existingTitles;
+  if (target?.replaceTitleOnly) {
+    const title = await generateUniqueTitle(target, existingTitles);
+    const article = { title, titleOnly: true, target: { author: target.author, permlink: target.permlink, parent_author: target.parent_author, parent_permlink: target.parent_permlink, created: target.created, replaceDuplicate: true, replaceTitleOnly: true, expectedTitle: target.expectedTitle } };
+    fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
+    console.log("Generated a unique title-only update for an existing duplicate post.");
+    return;
+  }
   const weekdayJst = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", weekday: "short" }).format(new Date());
   const regularPostDay = weekdayJst === "Sat" || weekdayJst === "Sun";
   if (!target && !regularPostDay) {
