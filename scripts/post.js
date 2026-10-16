@@ -1,5 +1,6 @@
 import { Client, PrivateKey } from "dsteem";
 import fs from "fs";
+import { isAuthorizedManualDuplicateTitleUpdate, shouldCheckDuplicateBody } from "./manual-dispatch-guard.js";
 
 // ====== 投稿可能な RPC ノードのみ ======
 const RPC_NODES = [
@@ -245,7 +246,8 @@ ${article.body_ko}
   const candidateTitle = normalizeTitle(article.title);
       const candidateBody = normalizeBody(bodyWithImage);
       const history = verifiedHistory || await listAuthorHistory();
-      const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (candidateBody.length >= 300 && normalizeBody(entry.body) === candidateBody)));
+      const verifiedDuplicateTarget = Boolean(target?.replaceDuplicate && Array.isArray(verifiedHistory));
+      const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && candidateBody.length >= 300 && normalizeBody(entry.body) === candidateBody)));
       if (duplicate) {
         console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existingPermlink: duplicate.permlink }));
         return { skipped: true, permlink: duplicate.permlink };
@@ -264,7 +266,19 @@ ${article.body_ko}
     console.log("No replacement target remains; no Steemit transaction broadcast.");
     return;
   }
-  if (process.env.GITHUB_REF !== "refs/heads/main" || process.env.GITHUB_EVENT_NAME !== "schedule") {
+  const scheduledMainRun = process.env.GITHUB_REF === "refs/heads/main" && process.env.GITHUB_EVENT_NAME === "schedule";
+  const authorizedRunNumber = "140";
+  const manualDuplicateUpdate = isAuthorizedManualDuplicateTitleUpdate({
+    eventName: process.env.GITHUB_EVENT_NAME,
+    ref: process.env.GITHUB_REF,
+    runNumber: process.env.GITHUB_RUN_NUMBER,
+    expectedRunNumber: authorizedRunNumber,
+    article
+  });
+  if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch" && process.env.GITHUB_RUN_NUMBER === authorizedRunNumber && !manualDuplicateUpdate) {
+    throw new Error("One-time manual update refused: only a verified title-only duplicate correction is permitted");
+  }
+  if (!scheduledMainRun && !manualDuplicateUpdate) {
     console.log("DRY RUN — no Steemit transaction broadcast");
     console.log(JSON.stringify(article, null, 2));
     return;
