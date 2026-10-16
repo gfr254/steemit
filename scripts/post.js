@@ -52,6 +52,10 @@ function loadArticle() {
   }
 
   if (json.skip === true) return json;
+  if (json.titleOnly === true) {
+    if (!json.title || !json.target?.permlink || json.target.replaceTitleOnly !== true || json.target.replaceDuplicate !== true) throw new Error("Title-only update is missing a verified duplicate target");
+    return json;
+  }
 
   const required = ["title", "body_ja", "body_en", "body_es", "body_ko"];
   for (const key of required) {
@@ -158,10 +162,12 @@ function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").re
   // ====== permlink（禁止文字 T/Z を除去） ======
   const target = article.target;
       let verifiedHistory = null;
+      let existingTarget = null;
       if (target) {
         if (target.author !== author) throw new Error("Target author mismatch");
         const existing = await client.database.call("get_content", [author, target.permlink]);
         if (!existing) throw new Error("Target post no longer exists; refusing to overwrite");
+        existingTarget = existing;
         if (target.replaceDuplicate === true) {
           if (!target.expectedTitle || existing.title !== target.expectedTitle) throw new Error("Duplicate target changed after generation; refusing to overwrite");
           verifiedHistory = await listAuthorHistory();
@@ -171,6 +177,7 @@ function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").re
           throw new Error("Target is no longer a placeholder; refusing to overwrite");
         }
       }
+      if (article.titleOnly && typeof existingTarget?.body !== "string") throw new Error("Existing post body unavailable; refusing title-only update");
 
   const permlink = target ? target.permlink :
     "beetle-" +
@@ -180,7 +187,7 @@ function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").re
       .replace("T", "-")
       .replace("Z", "");
 
-  const bodyWithImage = `
+  const bodyWithImage = article.titleOnly ? existingTarget?.body : `
 ![Air-cooled Beetle](${RAW_IMAGE_URL})
 
 ## 🇯🇵 日本語
@@ -209,7 +216,7 @@ ${article.body_ko}
 
 > 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 행사 관찰, 전문가 설명 및 소유자 경험을 바탕으로 공랭식 폭스바겐의 문화와 역사를 소개하는 글입니다.
 `;
-  const json_metadata = {
+  const json_metadata = article.titleOnly ? (existingTarget?.json_metadata || "{}") : {
     tags: [
       "aircooled",
       "beetle",
@@ -231,7 +238,7 @@ ${article.body_ko}
       permlink: permlink,
       title: article.title.trim(),
       body: bodyWithImage,
-      json_metadata: JSON.stringify(json_metadata),
+      json_metadata: typeof json_metadata === "string" ? json_metadata : JSON.stringify(json_metadata),
     },
   ];
 
