@@ -13,7 +13,7 @@ async function rpc(method, params) {
   return payload.result;
 }
 
-async function findOldestPlaceholder() {
+async function findOldestPlaceholder(mode = "combined") {
       const author = process.env.STEEM_AUTHOR;
       const found = new Map(); const existingPosts = new Map(); let cursor = null; const existingTitles = [];
       for (let page = 0; page < 10; page++) {
@@ -42,13 +42,14 @@ async function findOldestPlaceholder() {
       replacements.sort((x, y) => String(x.created).localeCompare(String(y.created)));
       const titleHistory = [...new Set(existingTitles)];
       const previousTitles = titleHistory.slice(0, 100);
-      if (replacements.length) {
+      if (mode !== "regular" && replacements.length) {
         const selected = replacements[0];
         selected.remainingDuplicates = replacements.length;
         selected.replacementIndex = Math.floor(Date.parse(selected.created) / 86400000);
         selected.previousTitles = previousTitles;
         return { target: selected, existingTitles: titleHistory };
       }
+      if (mode === "correction") return { target: null, existingTitles: titleHistory };
       const sorted = [...found.values()].sort((x, y) => x.created.localeCompare(y.created));
       if (!sorted.length) return { target: null, existingTitles: titleHistory };
       sorted[0].remainingPlaceholders = sorted.length;
@@ -144,9 +145,16 @@ function validateDraft(article, target, existingTitles = []) {
 }
 
 async function generate() {
-  const history = await findOldestPlaceholder();
+  const mode = process.argv[2] || "combined";
+  if (!["combined", "correction", "regular"].includes(mode)) throw new Error("Unknown generation mode: " + mode);
+  const history = await findOldestPlaceholder(mode);
   const target = history.target;
   const existingTitles = history.existingTitles;
+  if (mode === "correction" && !target?.replaceDuplicate) {
+    fs.writeFileSync("article.json", JSON.stringify({ skip: true, reason: "no_replacement_target" }));
+    console.log("No eligible duplicate correction remains; correction skipped.");
+    return;
+  }
   if (target?.replaceTitleOnly) {
     const title = await generateUniqueTitle(target, existingTitles);
     const article = { title, titleOnly: true, target: { author: target.author, permlink: target.permlink, parent_author: target.parent_author, parent_permlink: target.parent_permlink, created: target.created, replaceDuplicate: true, replaceTitleOnly: true, expectedTitle: target.expectedTitle } };
