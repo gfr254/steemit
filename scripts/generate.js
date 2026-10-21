@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 import fs from "fs";
+import { buildSubjectiveMarkerRetryInstruction, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
+import { isNonPersonalTitle } from "./publication-safety.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -11,7 +13,7 @@ async function rpc(method, params) {
   return payload.result;
 }
 
-async function findOldestPlaceholder() {
+async function findOldestPlaceholder(mode = "combined") {
       const author = process.env.STEEM_AUTHOR;
       const found = new Map(); const existingPosts = new Map(); let cursor = null; const existingTitles = [];
       for (let page = 0; page < 10; page++) {
@@ -40,13 +42,14 @@ async function findOldestPlaceholder() {
       replacements.sort((x, y) => String(x.created).localeCompare(String(y.created)));
       const titleHistory = [...new Set(existingTitles)];
       const previousTitles = titleHistory.slice(0, 100);
-      if (replacements.length) {
+      if (mode !== "regular" && replacements.length) {
         const selected = replacements[0];
         selected.remainingDuplicates = replacements.length;
         selected.replacementIndex = Math.floor(Date.parse(selected.created) / 86400000);
         selected.previousTitles = previousTitles;
         return { target: selected, existingTitles: titleHistory };
       }
+      if (mode === "correction") return { target: null, existingTitles: titleHistory };
       const sorted = [...found.values()].sort((x, y) => x.created.localeCompare(y.created));
       if (!sorted.length) return { target: null, existingTitles: titleHistory };
       sorted[0].remainingPlaceholders = sorted.length;
@@ -65,7 +68,7 @@ async function generateUniqueTitle(target, existingTitles) {
       messages: [
         { role: "system", content: "Generate a concise, accurate English title for an existing Steemit article. Return JSON only." },
         { role: "user", content: [
-          "Suggest a new title for this already-published article. Only the title will be updated; its body and URL must remain unchanged.",
+          "Suggest a new title for this already-published article. Only the title will be updated; its body and URL must remain unchanged. Do not use first person or imply that the author owns, drives, repairs, or maintains the car.",
           "Current title: " + String(target.title || ""),
           "Article text (factual source):\n" + String(target.body || "").slice(0, 8000),
           "Existing titles that must not be reused or closely paraphrased:\n" + titleList,
@@ -77,8 +80,8 @@ async function generateUniqueTitle(target, existingTitles) {
     });
     const draft = JSON.parse(response.choices[0].message.content);
     const title = String(draft.title || "").trim();
-    if (title && !existingTitles.some((existing) => normalizeTitle(existing) === normalizeTitle(title))) return title;
-    correction = "The proposed title was empty or already exists. Choose a clearly different, specific title; do not change the article body.";
+    if (isNonPersonalTitle(title) && !existingTitles.some((existing) => normalizeTitle(existing) === normalizeTitle(title))) return title;
+    correction = "The proposed title was empty, already exists, or implies personal ownership. Choose a clearly different, specific title without first-person wording; do not change the article body.";
     console.warn("Title-only replacement title collided with history; retrying (attempt " + (attempt + 1) + "/3).");
   }
   throw new Error("Could not generate a unique title for the published duplicate; no post was updated");
@@ -87,6 +90,8 @@ async function generateUniqueTitle(target, existingTitles) {
 async function generateDraft(prompt, target, existingTitles = []) {
   let retryPrompt = prompt;
   let rejection = null;
+  const missingMarkerFields = new Set();
+  const otherRetryInstructions = [];
   for (let attempt = 1; attempt <= 3; attempt++) {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -102,8 +107,15 @@ async function generateDraft(prompt, target, existingTitles = []) {
     if (!rejection) return article;
     if (attempt < 3) {
       console.warn("Draft rejected by validation; requesting a correction (attempt " + (attempt + 1) + "/3): " + rejection);
-      retryPrompt += "\n\n" + buildRetryInstruction(rejection);
-      if (rejection !== "Draft rejected: title duplicates an existing post") retryPrompt += " Rewrite all four language versions from scratch, keep their meaning aligned, and do not introduce unsupported claims.";
+      const markerField = missingSubjectiveFieldFromRejection(rejection);
+      if (markerField) {
+        missingMarkerFields.add(markerField);
+      } else {
+        const correction = buildRetryInstruction(rejection);
+        const instruction = correction + (rejection !== "Draft rejected: title duplicates an existing post" ? " Rewrite all four language versions from scratch, keep their meaning aligned, and do not introduce unsupported claims." : "");
+        if (!otherRetryInstructions.includes(instruction)) otherRetryInstructions.push(instruction);
+      }
+      retryPrompt = [prompt, ...otherRetryInstructions, missingMarkerFields.size ? buildSubjectiveMarkerRetryInstruction([...missingMarkerFields]) : ""].filter(Boolean).join("\n\n");
     }
   }
   throw new Error(rejection || "Draft failed factuality validation");
@@ -111,12 +123,8 @@ async function generateDraft(prompt, target, existingTitles = []) {
 
 function buildRetryInstruction(rejection) {
   if (rejection === "Draft rejected: title duplicates an existing post") return "The title duplicates an existing post. Change only the English title to a concise, specific title that is distinct from every listed previous title. Preserve the article body and tags. Return only the required JSON.";
-  const missingMarker = rejection.match(/^Draft rejected: (body_(?:ja|en|es|ko)) lacks cautious, subjective wording$/);
-  if (missingMarker) {
-    const examples = { body_ja: "印象, 感じます, 見えます, かもしれません, ように見えます", body_en: "seem, seems, impression, may, might, could", body_es: "parece, impresión, puede, podría", body_ko: "느낌, 인상, 듯, 수 있, 보일" };
-    const field = missingMarker[1];
-    return "Validation feedback: " + field + " needs explicit subjective wording. Add at least one exact phrase from this accepted list to that body: " + examples[field] + ". Keep it as a visual impression, not a factual claim.";
-  }
+  const markerField = missingSubjectiveFieldFromRejection(rejection);
+  if (markerField) return buildSubjectiveMarkerRetryInstruction([markerField]);
   const guardedTerm = rejection.match(/^Draft rejected by factuality guard: (.+)$/);
   if (guardedTerm) return "Validation feedback: remove the exact guarded term or unsupported claim \"" + guardedTerm[1] + "\" from the article. Do not replace it with a different factual claim.";
   return "Validation feedback: correct this issue without adding unsupported factual claims: " + rejection + ".";
@@ -128,33 +136,30 @@ function validateDraft(article, target, existingTitles = []) {
   if (existingTitles.some((existing) => normalizeTitle(existing) === normalizeTitle(title))) return "Draft rejected: title duplicates an existing post";
   if (!target) return null;
   const articleText = [article.title, article.body_ja, article.body_en, article.body_es, article.body_ko].join("\n");
-  const riskyPatterns = ["[0-9]", "safe|safety|security|drive|driving|repair|maintenance|production|manufactur|histor|popular|famous|many people|loved|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone", "安全|安心|運転|ドライブ|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も", "seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal", "안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
+  const riskyPatterns = ["[0-9]", "safe|safety|security|repair|maintenance|production|manufactur|histor|popular|famous|many people|loved|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone", "\\b(?:i|we)(?:['’]ve|['’]m|\\s+(?:have|had|am|was|were))?\\s+(?:(?:been|personally|once|often|regularly|usually|sometimes)\\s+)*(?:drive|drives|drove|driven|driving)\\b|\\b(?:my|our)\\s+driving(?:\\s+experience)?\\b|\\b(?:i|we)\\s+(?:am|was|were)\\s+(?:an?\\s+)?(?:experienced\\s+)?driver\\b", "安全|安心|運転|ドライブ|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も", "seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal", "안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
   const risky = riskyPatterns.find(pattern => pattern.test(articleText));
   if (risky) return "Draft rejected by factuality guard: " + (articleText.match(risky)?.[0] || risky.source);
-  const markers = { body_ja: ["印象", "感じ", "見え", "かもしれない", "ように"], body_en: ["seem", "impression", "may", "might", "could"], body_es: ["parece", "impresión", "impresion", "puede", "podría", "podria"], body_ko: ["느낌", "인상", "듯", "수 있", "보일"] };
-  for (const [field, choices] of Object.entries(markers)) {
-    const text = typeof article[field] === "string" ? article[field] : "";
-    if (!choices.some(marker => text.toLowerCase().includes(marker.toLowerCase()))) return "Draft rejected: " + field + " lacks cautious, subjective wording";
-  }
+  const markerRejection = validateSubjectiveMarkers(article);
+  if (markerRejection) return markerRejection;
   return null;
 }
 
 async function generate() {
-  const history = await findOldestPlaceholder();
+  const mode = process.argv[2] || "combined";
+  if (!["combined", "correction", "regular"].includes(mode)) throw new Error("Unknown generation mode: " + mode);
+  const history = await findOldestPlaceholder(mode);
   const target = history.target;
   const existingTitles = history.existingTitles;
+  if (mode === "correction" && !target?.replaceDuplicate) {
+    fs.writeFileSync("article.json", JSON.stringify({ skip: true, reason: "no_replacement_target" }));
+    console.log("No eligible duplicate correction remains; correction skipped.");
+    return;
+  }
   if (target?.replaceTitleOnly) {
     const title = await generateUniqueTitle(target, existingTitles);
     const article = { title, titleOnly: true, target: { author: target.author, permlink: target.permlink, parent_author: target.parent_author, parent_permlink: target.parent_permlink, created: target.created, replaceDuplicate: true, replaceTitleOnly: true, expectedTitle: target.expectedTitle } };
     fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
     console.log("Generated a unique title-only update for an existing duplicate post.");
-    return;
-  }
-  const weekdayJst = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", weekday: "short" }).format(new Date());
-  const regularPostDay = weekdayJst === "Sat" || weekdayJst === "Sun";
-  if (!target && !regularPostDay) {
-    fs.writeFileSync("article.json", JSON.stringify({ skip: true, reason: "no_replacement_target" }));
-    console.log("No replacement target remains; weekday post skipped.");
     return;
   }
   if (target && target.permlink === "3tmtka" && process.env.GITHUB_REF === "refs/heads/main" && process.env.GITHUB_EVENT_NAME === "schedule" && !existingTitles.some((title) => normalizeTitle(title) === normalizeTitle("The Beetle’s Rounded Lines: A Design That Invites a Closer Look"))) {
@@ -175,7 +180,7 @@ async function generate() {
           "Original title: " + String(target.title || ""),
           "Source article text (use this as the factual source; it may be truncated):\n" + String(target.body || "").slice(0, 8000),
           "Do not reuse or closely paraphrase these previous titles: " + previousTitles,
-          "Use only points supported by the source text. Do not invent dates, technical specifications, prices, statistics, named people or places, or personal experience. Do not use digits. Avoid claims about safety, popularity, history, or owners unless the source directly supports them. Write three concise paragraphs per language. Each body must include at least one explicit subjective marker: Japanese use 印象, 感じます, 見えます, かもしれません, or ように見えます; English use seem, seems, impression, may, might, or could; Spanish use parece, impresión, puede, or podría; Korean use 느낌, 인상, 듯, 수 있, or 보일. Return only JSON with a specific, distinct English title, body_ja, body_en, body_es, body_ko, and relevant lowercase ASCII tags."
+          "Use only points supported by the source text. Do not invent dates, technical specifications, prices, statistics, named people or places, or personal experience. Do not use digits. Avoid claims about safety, popularity, history, or owners unless the source directly supports them. Write three concise paragraphs per language. " + subjectiveMarkerPrompt() + " Return only JSON with a specific, distinct English title, body_ja, body_en, body_es, body_ko, and relevant lowercase ASCII tags."
         ].join("\n")
         : [
           "You are writing one original, gentle design essay about an air-cooled VW for a multilingual Steemit audience.",
@@ -183,10 +188,11 @@ async function generate() {
           "Visual topic: " + topic,
           "Do not repeat or closely paraphrase these previous titles: " + previousTitles,
           "Critical accuracy rules: No sources are provided, so write only subjective visual interpretation. Do not state historical facts, dates, model years, technical specifications, production or market facts, event frequency, prices, statistics, named people or places, or claims about what owners usually do. Do not invent personal ownership or maintenance experience. Avoid claims that apply to every Beetle; details vary. Do not use digits or numeric claims. Phrase impressions as impressions, not facts. Avoid generic claims of popularity or cultural significance.",
+          subjectiveMarkerPrompt(),
           "Write three concise paragraphs per language. Japanese, English, Spanish, and Korean must convey the same ideas naturally. Return only JSON with title, body_ja, body_en, body_es, body_ko, and tags. For new posts, use a concise bilingual title: Japanese first with the main topic phrase, followed by a short accurate English equivalent. Make the title specific to the article rather than generic. The first Japanese paragraph should naturally name the topic and state the article’s main point. Keep tags relevant and use lowercase ASCII."
         ].join("\n")
-  const legacyPrompt = "\nあなたは「空冷かずひろ」のSteemit多言語投稿AIです。\nテーマは、空冷VWの文化、歴史、日本の旧車事情、イベント、デザインを海外読者に紹介する内容に固定します。\n\n重要な前提:\n- 筆者は現時点で空冷VWを所有していません。\n- 筆者自身の運転、修理、整備、所有体験として書いてはいけません。\n- 公開情報、歴史資料、イベント観察、専門家の説明、オーナーの話を区別してください。\n- 確認できない年式、仕様、価格、店舗名、地域情報、出来事を創作しないでください。\n- 整備や安全に関する内容は一般的な知識にとどめ、専門店への確認を促してください。\n\n### 本文構造\n本文は以下の構造にする：\n1. 紹介する文化・歴史・イベントのテーマ\n2. 背景や用語の説明\n3. 日本の空冷VW文化との関係\n4. 海外読者にも伝わる見どころ\n5. 事実と個人の感想を分けたまとめ\n\n### 検索向けタイトル生成ルール\n日本語の主題語句を先に置き、海外読者にも正確に伝わる短い英語タイトルを続ける：\n日本語タイトル | English title\nAir-cooled Beetle / VW History / Classic Car Culture / Japan\n\n追加できる語：\nJapanese Car Culture / Beetle History / Design Story /\nVW Event / Classic Car Community / Air-cooled Culture\n\nタイトルにFujiokaなど確認できない地域名を入れてはいけません。\n筆者が所有者であると誤解される表現を使ってはいけません。\n\n### タグ生成ルール\n固定タグ：\naircooled / beetle / classiccar / japan / vwculture / history\n\n可変タグ：\nhistory / design / event / community / japaneseclassiccar / volkswagen\n\n### 出力形式\n{\n  \"title\": \"日本語タイトル | English title\",\n  \"body_ja\": \"本文（日本語）\",\n  \"body_en\": \"本文（英語）\",\n  \"body_es\": \"本文（スペイン語）\",\n  \"body_ko\": \"본문 (한국어)\",\n  \"tags\": [\"固定タグ＋可変タグ\"]\n}";
-  const prompt = target ? repairPrompt : legacyPrompt + "\n\nDo not reuse or closely paraphrase these previous titles: " + previousTitles;
+  const legacyPrompt = "\nあなたは「空冷かずひろ」のSteemit多言語投稿AIです。\nテーマは、空冷VWの文化、歴史、日本の旧車事情、イベント、デザインを海外読者に紹介する内容に固定します。\n\n重要な前提:\n- 筆者は現時点で空冷VWを所有していません。\n- 筆者自身の運転、修理、整備、所有体験として書いてはいけません。\n- 公開情報、歴史資料、イベント観察、専門家の説明、オーナーの話を区別してください。\n- 確認できない年式、仕様、価格、店舗名、地域情報、出来事を創作しないでください。\n- 整備や安全に関する内容は一般的な知識にとどめ、専門店への確認を促してください。\n\n### 本文構造\n本文は以下の構造にする：\n1. 紹介する文化・歴史・イベントのテーマ\n2. 背景や用語の説明\n3. 日本の空冷VW文化との関係\n4. 海外読者にも伝わる見どころ\n5. 事実と個人の感想を分けたまとめ\n\n### 検索向けタイトル生成ルール\n日本語の主題語句を先に置き、海外読者にも正確に伝わる短い英語タイトルを続ける：\n日本語タイトル | English title\nAir-cooled Beetle / VW History / Classic Car Culture / Japan\n\n追加できる語：\nJapanese Car Culture / Beetle History / Design Story /\nVW Event / Classic Car Community / Air-cooled Culture\n\nタイトルにFujiokaなど確認できない地域名を入れてはいけません。\n筆者が所有者であると誤解される表現を使ってはいけません。\n\n### タグ生成ルール\n固定タグ：\naircooled / beetle / classiccar / japan / vwculture / history\n\n可変タグ：\nhistory / design / event / community / japaneseclassiccar / volkswagen\n\n### 出力形式\n{\n  \"title\": \"英語タイトル\",\n  \"body_ja\": \"本文（日本語）\",\n  \"body_en\": \"本文（英語）\",\n  \"body_es\": \"本文（スペイン語）\",\n  \"body_ko\": \"본문 (한국어)\",\n  \"tags\": [\"固定タグ＋可変タグ\"]\n}";
+  const prompt = target ? repairPrompt : legacyPrompt + "\n\n" + subjectiveMarkerPrompt() + "\n\nDo not reuse or closely paraphrase these previous titles: " + previousTitles;
   const article = await generateDraft(prompt, target, existingTitles);
   fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
   console.log("✔ 整備固定記事生成完了: article.json に保存しました");
