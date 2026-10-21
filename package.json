@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "generate": "node scripts/generate.js",
-    "post": "node scripts/post.js"
+    "post": "node scripts/post.js",
+    "test": "node --test"
   },
   "dependencies": {
     "dsteem": "^0.10.1",

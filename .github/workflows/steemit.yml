@@ -2,7 +2,8 @@ name: Steemit Auto Writer & Post
 
 on:
   schedule:
-    - cron: "7 1 * * *"   # JST 10:07
+    - cron: "7 1 * * *"   # JST 10:07 — duplicate correction
+    - cron: "7 13 * * *"  # JST 22:07 — normal article
   workflow_dispatch:
 
 jobs:
@@ -28,10 +29,18 @@ jobs:
         run: |
           npm install
 
-      - name: Generate article
-        run: |
-          node scripts/generate.js
+      - name: Generate duplicate correction
+        if: github.event.schedule == '7 1 * * *'
+        run: node scripts/generate.js correction
 
-      - name: Post to Steemit
-        run: |
-          node scripts/post.js
+      - name: Post duplicate correction
+        if: github.event.schedule == '7 1 * * *'
+        run: node scripts/post.js
+
+      - name: Generate normal daily article
+        if: github.event.schedule == '7 13 * * *' || github.event_name == 'workflow_dispatch'
+        run: node scripts/generate.js regular
+
+      - name: Post normal daily article
+        if: github.event.schedule == '7 13 * * *' || github.event_name == 'workflow_dispatch'
+        run: node scripts/post.js

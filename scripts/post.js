@@ -1,5 +1,7 @@
 import { Client, PrivateKey } from "dsteem";
 import fs from "fs";
+import { shouldCheckDuplicateBody } from "./publication-safety.js";
+import { fetchRcPreflight } from "./rc-preflight.js";
 
 // ====== 投稿可能な RPC ノードのみ ======
 const RPC_NODES = [
@@ -84,21 +86,7 @@ async function safePost(op) {
 }
 
 async function ensureRcHeadroom(op) {
-  async function rpc(method, params) {
-    const response = await fetch("https://api.justyy.com", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 })
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.error) throw new Error("RC preflight failed: " + (payload.error?.message || response.status));
-    return payload.result;
-  }
-  const results = await Promise.all([
-    rpc("rc_api.find_rc_accounts", { accounts: [author] }),
-    rpc("rc_api.get_resource_params", {}),
-    rpc("rc_api.get_resource_pool", {}),
-    rpc("condenser_api.get_dynamic_global_properties", [])
-  ]);
+  const results = await fetchRcPreflight({ author });
   const account = results[0].rc_accounts?.find(item => item.account === author);
   const params = results[1];
   const pools = results[2];
@@ -245,7 +233,8 @@ ${article.body_ko}
   const candidateTitle = normalizeTitle(article.title);
       const candidateBody = normalizeBody(bodyWithImage);
       const history = verifiedHistory || await listAuthorHistory();
-      const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (candidateBody.length >= 300 && normalizeBody(entry.body) === candidateBody)));
+      const verifiedDuplicateTarget = Boolean(target?.replaceDuplicate && Array.isArray(verifiedHistory));
+      const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && candidateBody.length >= 300 && normalizeBody(entry.body) === candidateBody)));
       if (duplicate) {
         console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existingPermlink: duplicate.permlink }));
         return { skipped: true, permlink: duplicate.permlink };
