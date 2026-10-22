@@ -31,4 +31,14 @@ test("multiple marker failures are deduplicated", () => {
   assert.match(instruction, /body_en and body_ja/);
   assert.equal((instruction.match(/body_en:/g) || []).length, 1);
 });
-\ntest("neutral driving references do not trigger the personal-experience guard", () => {\n  assert.equal(findUnsupportedPersonalDrivingClaim("運転席から眺める丸い輪郭は、やわらかな印象です。"), null);\n  assert.equal(findUnsupportedPersonalDrivingClaim("車を運転するときの視界を想像すると、曲線の印象が変わります。"), null);\n});\n\ntest("claims of personal driving experience remain blocked", () => {\n  assert.equal(findUnsupportedPersonalDrivingClaim("私はビートルを運転した経験があります。"), "運転");\n  assert.equal(findUnsupportedPersonalDrivingClaim("ビートルをドライブしたことがあります。"), "ドライブ");\n  assert.equal(findUnsupportedPersonalDrivingClaim("運転しました。"), "運転");\n});\n
+
+test("neutral driving references do not trigger the personal-experience guard", () => {
+  assert.equal(findUnsupportedPersonalDrivingClaim("運転席から眺める丸い輪郭は、やわらかな印象です。"), null);
+  assert.equal(findUnsupportedPersonalDrivingClaim("車を運転するときの視界を想像すると、曲線の印象が変わります。"), null);
+});
+
+test("claims of personal driving experience remain blocked", () => {
+  assert.equal(findUnsupportedPersonalDrivingClaim("私はビートルを運転した経験があります。"), "運転");
+  assert.equal(findUnsupportedPersonalDrivingClaim("ビートルをドライブしたことがあります。"), "ドライブ");
+  assert.equal(findUnsupportedPersonalDrivingClaim("運転しました。"), "運転");
+});
