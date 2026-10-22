@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import fs from "fs";
-import { buildSubjectiveMarkerRetryInstruction, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
+import { buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
 import { isNonPersonalTitle } from "./publication-safety.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -136,7 +136,9 @@ function validateDraft(article, target, existingTitles = []) {
   if (existingTitles.some((existing) => normalizeTitle(existing) === normalizeTitle(title))) return "Draft rejected: title duplicates an existing post";
   if (!target) return null;
   const articleText = [article.title, article.body_ja, article.body_en, article.body_es, article.body_ko].join("\n");
-  const riskyPatterns = ["[0-9]", "safe|safety|security|repair|maintenance|production|manufactur|histor|popular|famous|many people|loved|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone", "\\b(?:i|we)(?:['’]ve|['’]m|\\s+(?:have|had|am|was|were))?\\s+(?:(?:been|personally|once|often|regularly|usually|sometimes)\\s+)*(?:drive|drives|drove|driven|driving)\\b|\\b(?:my|our)\\s+driving(?:\\s+experience)?\\b|\\b(?:i|we)\\s+(?:am|was|were)\\s+(?:an?\\s+)?(?:experienced\\s+)?driver\\b", "安全|安心|運転|ドライブ|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も", "seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal", "안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
+  const personalDrivingClaim = findUnsupportedPersonalDrivingClaim(articleText);
+  if (personalDrivingClaim) return "Draft rejected by factuality guard: " + personalDrivingClaim;
+  const riskyPatterns = ["[0-9]", "safe|safety|security|repair|maintenance|production|manufactur|histor|popular|famous|many people|loved|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone", "\\b(?:i|we)(?:['’]ve|['’]m|\\s+(?:have|had|am|was|were))?\\s+(?:(?:been|personally|once|often|regularly|usually|sometimes)\\s+)*(?:drive|drives|drove|driven|driving)\\b|\\b(?:my|our)\\s+driving(?:\\s+experience)?\\b|\\b(?:i|we)\\s+(?:am|was|were)\\s+(?:an?\\s+)?(?:experienced\\s+)?driver\\b", "安全|安心|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も", "seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal", "안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
   const risky = riskyPatterns.find(pattern => pattern.test(articleText));
   if (risky) return "Draft rejected by factuality guard: " + (articleText.match(risky)?.[0] || risky.source);
   const markerRejection = validateSubjectiveMarkers(article);
