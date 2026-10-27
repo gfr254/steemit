@@ -1,3 +1,12 @@
+export function factualityGuardAvoidancePrompt() {
+  return [
+    "No sources are provided. Write only cautious, subjective descriptions of visible design.",
+    "Do not make claims about history, popularity, safety, repair, maintenance, production, owners, events, experts, markets, or public opinion.",
+    "Avoid these guard-triggering words and equivalents in every language: history, historical, popular, famous, loved, many people, every year, owners, events, market, experts, worldwide, always, everyone; 歴史, 人気, 多くの人, 愛され, 毎年, イベント, 市場, 所有者, オーナー, 専門家, 世界中, すべて, 最も; historia, popular, amado, cada año, evento, mercado, propietario, experto, todos, siempre; 역사, 인기, 사랑받, 매년, 행사, 시장, 소유자, 전문가, 모든, 세계.",
+    "Do not replace a prohibited term with a synonym or make a similar claim. Keep each language focused on a specific visual impression, and do not invent personal ownership or maintenance experience."
+  ].join(" ");
+}
+
 export const SUBJECTIVE_MARKERS = Object.freeze({
   body_ja: Object.freeze(["印象", "感じ", "見え", "かもしれない", "ように"]),
   body_en: Object.freeze(["seem", "impression", "may", "might", "could"]),
