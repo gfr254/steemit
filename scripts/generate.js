@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import fs from "fs";
-import { buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
+import { factualityGuardAvoidancePrompt, buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
 import { isNonPersonalTitle } from "./publication-safety.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -87,12 +87,14 @@ async function generateUniqueTitle(target, existingTitles) {
   throw new Error("Could not generate a unique title for the published duplicate; no post was updated");
 }
 
+const MAX_DRAFT_GENERATION_ATTEMPTS = 5;
+
 async function generateDraft(prompt, target, existingTitles = []) {
   let retryPrompt = prompt;
   let rejection = null;
   const missingMarkerFields = new Set();
   const otherRetryInstructions = [];
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= MAX_DRAFT_GENERATION_ATTEMPTS; attempt++) {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -105,8 +107,8 @@ async function generateDraft(prompt, target, existingTitles = []) {
     article.target = target ? { author: target.author, permlink: target.permlink, parent_author: target.parent_author, parent_permlink: target.parent_permlink, created: target.created, replaceDuplicate: Boolean(target.replaceDuplicate), expectedTitle: target.expectedTitle } : null;
     rejection = validateDraft(article, target, existingTitles);
     if (!rejection) return article;
-    if (attempt < 3) {
-      console.warn("Draft rejected by validation; requesting a correction (attempt " + (attempt + 1) + "/3): " + rejection);
+    if (attempt < MAX_DRAFT_GENERATION_ATTEMPTS) {
+      console.warn("Draft rejected by validation; requesting a correction (attempt " + (attempt + 1) + "/" + MAX_DRAFT_GENERATION_ATTEMPTS + "): " + rejection);
       const markerField = missingSubjectiveFieldFromRejection(rejection);
       if (markerField) {
         missingMarkerFields.add(markerField);
@@ -126,7 +128,7 @@ function buildRetryInstruction(rejection) {
   const markerField = missingSubjectiveFieldFromRejection(rejection);
   if (markerField) return buildSubjectiveMarkerRetryInstruction([markerField]);
   const guardedTerm = rejection.match(/^Draft rejected by factuality guard: (.+)$/);
-  if (guardedTerm) return "Validation feedback: remove the exact guarded term or unsupported claim \"" + guardedTerm[1] + "\" from the article. Do not replace it with a different factual claim.";
+  if (guardedTerm) return "Validation feedback: remove the exact guarded term or unsupported claim \"" + guardedTerm[1] + "\" from the title and all four language bodies. Avoid the full related claim category and synonyms, not only that exact word. " + factualityGuardAvoidancePrompt();
   return "Validation feedback: correct this issue without adding unsupported factual claims: " + rejection + ".";
 }
 
@@ -189,7 +191,7 @@ async function generate() {
           "Article number: " + articleNumber,
           "Visual topic: " + topic,
           "Do not repeat or closely paraphrase these previous titles: " + previousTitles,
-          "Critical accuracy rules: No sources are provided, so write only subjective visual interpretation. Do not state historical facts, dates, model years, technical specifications, production or market facts, event frequency, prices, statistics, named people or places, or claims about what owners usually do. Do not invent personal ownership or maintenance experience. Avoid claims that apply to every Beetle; details vary. Do not use digits or numeric claims. Phrase impressions as impressions, not facts. Avoid generic claims of popularity or cultural significance.",
+          "Critical accuracy rules: " + factualityGuardAvoidancePrompt(),
           subjectiveMarkerPrompt(),
           "Write three concise paragraphs per language. Japanese, English, Spanish, and Korean must convey the same ideas naturally. Return only JSON with title, body_ja, body_en, body_es, body_ko, and tags. For new posts, use a concise bilingual title: Japanese first with the main topic phrase, followed by a short accurate English equivalent. Make the title specific to the article rather than generic. The first Japanese paragraph should naturally name the topic and state the article’s main point. Keep tags relevant and use lowercase ASCII."
         ].join("\n")
