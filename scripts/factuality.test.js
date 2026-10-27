@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, getMissingSubjectiveField, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
+import { factualityGuardAvoidancePrompt, buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, getMissingSubjectiveField, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
 
 const validBodies = { body_ja: "丸みのある形にやわらかな印象を受けます。", body_en: "The rounded shape seems gentle.", body_es: "La forma redondeada parece suave.", body_ko: "둥근 형태가 부드러운 느낌입니다." };
 
@@ -41,4 +41,9 @@ test("claims of personal driving experience remain blocked", () => {
   assert.equal(findUnsupportedPersonalDrivingClaim("私はビートルを運転した経験があります。"), "運転");
   assert.equal(findUnsupportedPersonalDrivingClaim("ビートルをドライブしたことがあります。"), "ドライブ");
   assert.equal(findUnsupportedPersonalDrivingClaim("運転しました。"), "運転");
+});
+test("factuality guidance explicitly excludes the phrases recently rejected by the guard", () => {
+  const prompt = factualityGuardAvoidancePrompt();
+  for (const term of ["history", "historical", "popular", "loved", "many people", "owners", "experts", "多くの人", "歴史", "loved"]) assert.ok(prompt.includes(term));
+  assert.match(prompt, /Do not replace a prohibited term with a synonym/);
 });
