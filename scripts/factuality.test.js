@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { factualityGuardAvoidancePrompt, buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, getMissingSubjectiveField, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
+import { factualityGuardAvoidancePrompt, buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, findUnsupportedPublicOpinionClaim, getMissingSubjectiveField, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
 
 const validBodies = { body_ja: "丸みのある形にやわらかな印象を受けます。", body_en: "The rounded shape seems gentle.", body_es: "La forma redondeada parece suave.", body_ko: "둥근 형태가 부드러운 느낌입니다." };
 
@@ -46,4 +46,11 @@ test("factuality guidance explicitly excludes the phrases recently rejected by t
   const prompt = factualityGuardAvoidancePrompt();
   for (const term of ["history", "historical", "popular", "loved", "many people", "owners", "experts", "多くの人", "歴史", "loved"]) assert.ok(prompt.includes(term));
   assert.match(prompt, /Do not replace a prohibited term with a synonym/);
+});
+
+
+test("factuality guard catches popularity claims without rejecting a standalone word", () => {
+  assert.equal(findUnsupportedPublicOpinionClaim("The sentence contains the word loved as an example."), null);
+  assert.match(findUnsupportedPublicOpinionClaim("The design is widely loved by owners."), /widely loved/i);
+  assert.match(findUnsupportedPublicOpinionClaim("Fans love the familiar outline."), /Fans love/i);
 });
