@@ -2,7 +2,7 @@ export function factualityGuardAvoidancePrompt() {
   return [
     "No sources are provided. Write only cautious, subjective descriptions of visible design.",
     "Do not make claims about history, popularity, safety, repair, maintenance, production, owners, events, experts, markets, or public opinion.",
-    "Avoid these guard-triggering words and equivalents in every language: history, historical, popular, famous, loved, many people, every year, owners, events, market, experts, worldwide, always, everyone; 歴史, 人気, 多くの人, 愛され, 毎年, イベント, 市場, 所有者, オーナー, 専門家, 世界中, すべて, 最も; historia, popular, amado, cada año, evento, mercado, propietario, experto, todos, siempre; 역사, 인기, 사랑받, 매년, 행사, 시장, 소유자, 전문가, 모든, 세계.",
+    "Avoid these unsupported public-opinion claims and equivalents in every language: history, historical, popular, famous, widely loved, loved by owners or fans, many people, every year, owners, events, market, experts, worldwide, always, everyone; 歴史, 人気, 多くの人, 愛され, 毎年, イベント, 市場, 所有者, オーナー, 専門家, 世界中, すべて, 最も; historia, popular, amado, cada año, evento, mercado, propietario, experto, todos, siempre; 역사, 인기, 사랑받, 매년, 행사, 시장, 소유자, 전문가, 모든, 세계.",
     "Do not replace a prohibited term with a synonym or make a similar claim. Keep each language focused on a specific visual impression, and do not invent personal ownership or maintenance experience."
   ].join(" ");
 }
@@ -41,6 +41,23 @@ export function buildSubjectiveMarkerRetryInstruction(fields) {
   if (!uniqueFields.length) throw new Error("At least one valid body field is required");
   const requirements = uniqueFields.map(field => field + ": " + SUBJECTIVE_MARKERS[field].join(", ")).join("; ");
   return "Validation feedback: revise only " + uniqueFields.join(" and ") + " to add at least one exact accepted subjective marker. Preserve the title, tags, and all other language bodies unchanged. Keep the same meaning and do not add unsupported factual claims. Return the full required JSON. Accepted markers: " + requirements + ".";
+}
+
+
+const UNSUPPORTED_PUBLIC_OPINION_PATTERNS = Object.freeze([
+  /\b(?:widely|universally|deeply)\s+loved\b/i,
+  /\b(?:is|are|was|were|has been|have been)\s+(?:widely\s+)?loved\b/i,
+  /\b(?:loved|beloved)\s+(?:by|among|for|around)\b/i,
+  /\b(?:owners?|fans?|people|enthusiasts?)\s+(?:love|loved)\b/i,
+]);
+
+export function findUnsupportedPublicOpinionClaim(text) {
+  const source = String(text ?? "");
+  for (const pattern of UNSUPPORTED_PUBLIC_OPINION_PATTERNS) {
+    const match = source.match(pattern);
+    if (match) return match[0];
+  }
+  return null;
 }
 
 const PERSONAL_DRIVING_CLAIM_PATTERNS = Object.freeze([
