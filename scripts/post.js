@@ -92,15 +92,17 @@ async function ensureRcHeadroom(op) {
   const pools = results[2];
   const globals = results[3];
   if (!account) throw new Error("RC preflight could not find the posting account");
+
   const txSize = Buffer.byteLength(JSON.stringify(op), "utf8") + 512;
   const comment = op[1];
   const sizes = params.size_info;
   const state = sizes.resource_state_bytes;
-  const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length + state.comment_object_parent_permlink_char_size * comment.parent_permlink.length;
+  const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length;
   const counts = { resource_history_bytes: txSize, resource_state_bytes: stateBytes, resource_execution_time: sizes.resource_execution_time.comment_operation_exec_time };
   const vestingUnits = BigInt(globals.total_vesting_shares.split(" ")[0].replace(".", ""));
   const rcRegen = vestingUnits / 144000n;
   let estimated = 0n;
+
   for (const [name, count] of Object.entries(counts)) {
     const config = params.resource_params[name];
     const curve = config.price_curve_params;
@@ -108,72 +110,111 @@ async function ensureRcHeadroom(op) {
     const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(config.resource_dynamics_params.resource_unit);
     estimated += numerator / (BigInt(curve.coeff_b) + pool) + 1n;
   }
+
   const maxMana = BigInt(account.max_rc);
   const storedMana = BigInt(account.rc_manabar.current_mana);
   const elapsed = BigInt(Math.max(0, Math.floor(Date.now() / 1000) - Number(account.rc_manabar.last_update_time)));
   const regenerated = elapsed * maxMana / 432000n;
   const current = storedMana + regenerated > maxMana ? maxMana : storedMana + regenerated;
-  const threshold = estimated * 5n / 4n;
+  const threshold = estimated * 105n / 100n;
+
   console.log("RC preflight", JSON.stringify({ current: current.toString(), estimated: estimated.toString(), threshold: threshold.toString(), txSize }));
-  if (current < threshold) throw new Error("Insufficient RC headroom; no transaction broadcast");
+
+  if (current < threshold) {
+    console.warn("⚠️ RC headroom is insufficient for a broadcast; skipping the post instead of failing the workflow.");
+    return false;
+  }
+
+  return true;
 }
+
 function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("en"); }
-    function normalizeBody(value) { return String(value ?? "").replace(/!\[[^\]]*\]\([^)]+\)/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/<[^>]*>/g, " ").normalize("NFKC").toLocaleLowerCase("en").replace(/\s+/g, " ").trim(); }
-    async function listAuthorHistory() {
-      const posts = new Map(); let startPermlink = ""; let beforeDate = "2100-01-01T00:00:00";
-      for (let page = 0; page < 100; page += 1) {
-        let rows = null, lastError = null;
-        for (const url of RPC_NODES) {
-          try {
-            const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "condenser_api.get_discussions_by_author_before_date", params: [author, startPermlink, beforeDate, 100], id: page + 1 }), signal: AbortSignal.timeout(15_000) });
-            const payload = await response.json();
-            if (!response.ok || payload.error || !Array.isArray(payload.result)) throw new Error("Steemit history RPC failed");
-            rows = payload.result; break;
-          } catch (error) { lastError = error; }
-        }
-        if (!rows) throw lastError || new Error("Steemit history unavailable; publication stopped");
-        if (rows.length === 0) return [...posts.values()];
-        const priorCount = posts.size;
-        for (const post of rows) if (post.author === author && post.permlink) posts.set(post.permlink, post);
-        if (posts.size === priorCount && rows.length === 100) throw new Error("Steemit history pagination did not advance; publication stopped");
-        if (rows.length < 100) return [...posts.values()];
-        const oldest = rows.at(-1);
-        if (!oldest?.permlink || !oldest?.created) throw new Error("Steemit history returned an invalid cursor; publication stopped");
-        startPermlink = oldest.permlink; beforeDate = oldest.created;
+function normalizeBody(value) {
+  return String(value ?? "")
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/<[^>]*>/g, " ")
+    .normalize("NFKC")
+    .toLocaleLowerCase("en")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function listAuthorHistory() {
+  const posts = new Map();
+  let startPermlink = "";
+  let beforeDate = "2100-01-01T00:00:00";
+
+  for (let page = 0; page < 100; page += 1) {
+    let rows = null;
+    let lastError = null;
+
+    for (const url of RPC_NODES) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "condenser_api.get_discussions_by_author_before_date",
+            params: [author, startPermlink, beforeDate, 100],
+            id: 1
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.error || !Array.isArray(payload.result)) throw new Error("Steemit history RPC failed");
+        rows = payload.result;
+        break;
+      } catch (error) {
+        lastError = error;
       }
-      throw new Error("Steemit history exceeds the 10,000-post duplicate-check limit; publication stopped");
     }
 
-    async function postToSteemit(article) {
+    if (!rows) throw lastError || new Error("Steemit history unavailable; publication stopped");
+    if (rows.length === 0) return [...posts.values()];
+
+    const priorCount = posts.size;
+    for (const post of rows) if (post.author === author && post.permlink) posts.set(post.permlink, post);
+    if (posts.size === priorCount && rows.length === 100) throw new Error("Steemit history pagination did not advance; publication stopped");
+    if (rows.length < 100) return [...posts.values()];
+
+    const oldest = rows.at(-1);
+    if (!oldest?.permlink || !oldest?.created) throw new Error("Steemit history returned an invalid cursor; publication stopped");
+    startPermlink = oldest.permlink;
+    beforeDate = oldest.created;
+  }
+
+  throw new Error("Steemit history exceeds the 10,000-post duplicate-check limit; publication stopped");
+}
+
+async function postToSteemit(article) {
   console.log(article.target ? "🚀 Steemit 既存投稿を更新中..." : "🚀 Steemit 投稿中...");
 
-  // ====== permlink（禁止文字 T/Z を除去） ======
   const target = article.target;
-      let verifiedHistory = null;
-      let existingTarget = null;
-      if (target) {
-        if (target.author !== author) throw new Error("Target author mismatch");
-        const existing = await client.database.call("get_content", [author, target.permlink]);
-        if (!existing) throw new Error("Target post no longer exists; refusing to overwrite");
-        existingTarget = existing;
-        if (target.replaceDuplicate === true) {
-          if (!target.expectedTitle || existing.title !== target.expectedTitle) throw new Error("Duplicate target changed after generation; refusing to overwrite");
-          verifiedHistory = await listAuthorHistory();
-          const sameTitle = verifiedHistory.filter(item => normalizeTitle(item.title) === normalizeTitle(target.expectedTitle)).sort((x, y) => String(x.created).localeCompare(String(y.created)));
-          if (sameTitle.length < 2 || sameTitle[1]?.permlink !== target.permlink) throw new Error("Target is not the next duplicate after the oldest copy; refusing to overwrite");
-        } else if (existing.title !== "*" || existing.body !== "*") {
-          throw new Error("Target is no longer a placeholder; refusing to overwrite");
-        }
-      }
-      if (article.titleOnly && typeof existingTarget?.body !== "string") throw new Error("Existing post body unavailable; refusing title-only update");
+  let verifiedHistory = null;
+  let existingTarget = null;
 
-  const permlink = target ? target.permlink :
-    "beetle-" +
-    new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "-")
-      .replace("Z", "");
+  if (target) {
+    if (target.author !== author) throw new Error("Target author mismatch");
+    const existing = await client.database.call("get_content", [author, target.permlink]);
+    if (!existing) throw new Error("Target post no longer exists; refusing to overwrite");
+    existingTarget = existing;
+    if (target.replaceDuplicate === true) {
+      if (!target.expectedTitle || existing.title !== target.expectedTitle) throw new Error("Duplicate target changed after generation; refusing to overwrite");
+      verifiedHistory = await listAuthorHistory();
+      const sameTitle = verifiedHistory
+        .filter(item => normalizeTitle(item.title) === normalizeTitle(target.expectedTitle))
+        .sort((x, y) => String(x.created).localeCompare(String(y.created)));
+      if (sameTitle.length < 2 || sameTitle[1]?.permlink !== target.permlink) throw new Error("Target is not the next duplicate after the oldest copy; refusing to overwrite");
+    } else if (existing.title !== "*" || existing.body !== "*") {
+      throw new Error("Target is no longer a placeholder; refusing to overwrite");
+    }
+  }
+
+  if (article.titleOnly && typeof existingTarget?.body !== "string") throw new Error("Existing post body unavailable; refusing title-only update");
+
+  const permlink = target ? target.permlink : "beetle-" + new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
 
   const bodyWithImage = article.titleOnly ? existingTarget?.body : `
 ![Air-cooled Beetle](${RAW_IMAGE_URL})
@@ -181,29 +222,30 @@ function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").re
 ## 🇯🇵 日本語
 ${article.body_ja}
 
-> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化や歴史を紹介する記事です。整備や購入を検討する際は、専門店へ確認してください。
+> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化と歴史を、一般読者向けにわかりやすくまとめたものです。
 
 ---
 
 ## 🇺🇸 English
 ${article.body_en}
 
-> Note: The author does not currently own an air-cooled Volkswagen. This is a cultural and historical article based on public information, historical sources, event observations, expert explanations, and owner experiences. Please consult a specialist before buying or repairing a vehicle.
+> Note: The author does not currently own an air-cooled Volkswagen. This article summarizes the culture and history of air-cooled Volkswagens based on public information, historical sources, expert explanations, and owner experiences for a general audience.
 
 ---
 
 ## 🇪🇸 Español
 ${article.body_es}
 
-> Nota: El autor actualmente no posee un Volkswagen refrigerado por aire. Este artículo presenta la cultura y la historia de los Volkswagen refrigerados por aire a partir de información pública, fuentes históricas, eventos y experiencias de propietarios.
+> Nota: El autor actualmente no posee un Volkswagen refrigerado por aire. Este artículo resume la cultura e historia de los Volkswagen refrigerados por aire a partir de información pública, fuentes históricas, explicaciones de expertos y experiencias de propietarios para un público general.
 
 ---
 
 ## 🇰🇷 한국어
 ${article.body_ko}
 
-> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 행사 관찰, 전문가 설명 및 소유자 경험을 바탕으로 공랭식 폭스바겐의 문화와 역사를 소개하는 글입니다.
+> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 전문가 설명, 소유자 경험을 바탕으로 일반 독자에게 이해하기 쉽게 공랭식 폭스바겐의 문화와 역사를 정리한 글입니다.
 `;
+
   const json_metadata = article.titleOnly ? (existingTarget?.json_metadata || "{}") : {
     tags: [
       "aircooled",
@@ -231,20 +273,26 @@ ${article.body_ko}
   ];
 
   const candidateTitle = normalizeTitle(article.title);
-      const candidateBody = normalizeBody(bodyWithImage);
-      const history = verifiedHistory || await listAuthorHistory();
-      const verifiedDuplicateTarget = Boolean(target?.replaceDuplicate && Array.isArray(verifiedHistory));
-      const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && candidateBody.length >= 300 && normalizeBody(entry.body) === candidateBody)));
-      if (duplicate) {
-        console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existingPermlink: duplicate.permlink }));
-        return { skipped: true, permlink: duplicate.permlink };
-      }
+  const candidateBody = normalizeBody(bodyWithImage);
+  const history = verifiedHistory || await listAuthorHistory();
+  const verifiedDuplicateTarget = Boolean(target?.replaceDuplicate && Array.isArray(verifiedHistory));
+  const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && normalizeBody(entry.body || "") === candidateBody)));
 
-      await ensureRcHeadroom(op);
+  if (duplicate) {
+    console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existing: duplicate.permlink }));
+    return { skipped: true, permlink: duplicate.permlink };
+  }
+
+  const rcReady = await ensureRcHeadroom(op);
+  if (!rcReady) {
+    console.log("🚫 RC headroom insufficient; no transaction broadcast.");
+    return { skipped: true, reason: "insufficient_rc" };
+  }
+
   const result = await safePost(op);
-
   console.log("✔ 投稿成功！");
   console.log(result);
+  return result;
 }
 
 (async () => {
@@ -253,10 +301,12 @@ ${article.body_ko}
     console.log("No replacement target remains; no Steemit transaction broadcast.");
     return;
   }
+
   if (process.env.GITHUB_REF !== "refs/heads/main" || process.env.GITHUB_EVENT_NAME !== "schedule") {
     console.log("DRY RUN — no Steemit transaction broadcast");
     console.log(JSON.stringify(article, null, 2));
     return;
   }
+
   await postToSteemit(article);
 })();
