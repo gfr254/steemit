@@ -1,3 +1,4 @@
+import "./retry-steem-rpc.js";
 import { Client, PrivateKey } from "dsteem";
 import fs from "fs";
 import { shouldCheckDuplicateBody } from "./publication-safety.js";
@@ -222,7 +223,7 @@ async function postToSteemit(article) {
 ## 🇯🇵 日本語
 ${article.body_ja}
 
-> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化と歴史を、一般読者向けにわかりやすくまとめたものです。
+> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化や歴史を、一般読者向けにわかりやすくまとめたものです。
 
 ---
 
@@ -243,7 +244,7 @@ ${article.body_es}
 ## 🇰🇷 한국어
 ${article.body_ko}
 
-> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 전문가 설명, 소유자 경험을 바탕으로 일반 독자에게 이해하기 쉽게 공랭식 폭스바겐의 문화와 역사를 정리한 글입니다.
+> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 전문가 설명, 소유자 경험을 바탕으로 일반 독자를 위해 공랭식 폭스바겐의 문화와 역사를 정리한 글입니다.
 `;
 
   const json_metadata = article.titleOnly ? (existingTarget?.json_metadata || "{}") : {
