@@ -188,7 +188,14 @@ function validateDraft(article, target, existingTitles = []) {
   if (personalDrivingClaim) return "Draft rejected by factuality guard: " + personalDrivingClaim;
   const unsupportedPublicOpinion = findUnsupportedPublicOpinionClaim(articleText);
   if (unsupportedPublicOpinion) return "Draft rejected by factuality guard: " + unsupportedPublicOpinion;
-  const riskyPatterns = ["[0-9]", "safe|safety|security|repair|maintenance|production|manufactur|histor|popular|famous|many people|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone", "\\b(?:i|we)(?:['’]ve|['’]m|\\s+(?:have|had|am|was|were))?\\s+(?:(?:been|personally|once|often|regularly|usually|sometimes)\\s+)*(?:drive|drives|drove|driven|driving)\\b|\\b(?:my|our)\\s+driving(?:\\s+experience)?\\b|\\b(?:i|we)\\s+(?:am|was|were)\\s+(?:an?\\s+)?(?:experienced\\s+)?driver\\b", "安全|安心|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も", "seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal", "안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
+  const riskyPatterns = [
+    /[0-9]/,
+    /\b(?:safe|safety|security|repair|maintenance|production|manufactur\w*|histor\w*|popular|famous|many people|every year|owners?|events?|market|experts?|functionality|worldwide|all other|always|everyone)\b/i,
+    /\b(?:i|we)(?:['’]ve|['’]m|\s+(?:have|had|am|was|were))?\s+(?:(?:been|personally|once|often|regularly|usually|sometimes)\s+)*(?:drive|drives|drove|driven|driving)\b|\b(?:my|our)\s+driving(?:\s+experience)?\b|\b(?:i|we)\s+(?:am|was|were)\s+(?:an?\s+)?(?:experienced\s+)?driver\b/i,
+    /安全性|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|世界中|すべて|全て|唯一|最も/,
+    /\b(?:seguridad|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal)\b/i,
+    /안전성|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|역사|모든|세계/,
+  ];
   const risky = riskyPatterns.find(pattern => pattern.test(articleText));
   if (risky) return "Draft rejected by factuality guard: " + (articleText.match(risky)?.[0] || risky.source);
   const markerRejection = validateSubjectiveMarkers(article);
@@ -244,7 +251,7 @@ async function generate() {
           subjectiveMarkerPrompt(),
           "Write three concise paragraphs per language. Japanese, English, Spanish, and Korean must convey the same ideas naturally. Return only JSON with title, body_ja, body_en, body_es, body_ko. For new posts, use a concise bilingual title: Japanese first with the main topic phrase, followed by a short accurate English equivalent. Make the title specific to the article rather than generic. The first Japanese paragraph should naturally name the topic and state the article’s main point. Keep tags relevant and use lowercase ASCII."
         ].join("\n");
-  const legacyPrompt = "\nあなたは「空冷かずひろ」のSteemit多言語投稿AIです。\nテーマは、空冷VWの文化、歴史、日本の旧車事情、イベント、デザインに関する穏やかな文章です。\n一貫した事実ベースの内容にし、過去のタイトルと似すぎないようにしてください。\nReturn JSON with title, body_ja, body_en, body_es, body_ko.";
+  const legacyPrompt = "\nあなたは「空冷かずひろ」のSteemit多言語投稿AIです。\nテーマは、空冷VWの文化、歴史、日本の旧車事情、���ベント、デザインに関する穏やかな文章です。\n一貫した事実ベースの内容にし、過去のタイトルと似すぎないようにしてください。\nReturn JSON with title, body_ja, body_en, body_es, body_ko.";
   const prompt = target ? repairPrompt : legacyPrompt + "\n\n" + subjectiveMarkerPrompt() + "\n\nDo not reuse or closely paraphrase these previous titles: " + previousTitles;
   const article = await generateDraft(prompt, target, existingTitles);
   fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
