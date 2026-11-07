@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import fs from "fs";
-import { factualityGuardAvoidancePrompt, buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, findUnsupportedPublicOpinionClaim, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers, buildRetryInstruction } from "./article-validation.js";
+import { factualityGuardAvoidancePrompt, buildSubjectiveMarkerRetryInstruction, findUnsupportedPersonalDrivingClaim, findUnsupportedPublicOpinionClaim, missingSubjectiveFieldFromRejection, subjectiveMarkerPrompt, validateSubjectiveMarkers } from "./factuality.js";
 import { isNonPersonalTitle } from "./publication-safety.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -114,7 +114,7 @@ async function generateUniqueTitle(target, existingTitles) {
       messages: [
         { role: "system", content: "Generate a concise, accurate English title for an existing Steemit article. Return JSON only." },
         { role: "user", content: [
-          "Suggest a new title for this already-published article. Only the title will be updated; its body and URL must remain unchanged. Do not use first person or imply that the author owns, dr[...]
+          "Suggest a new title for this already-published article. Only the title will be updated; its body and URL must remain unchanged. Do not use first person or imply that the author owns, drives, repairs, or maintains the car.",
           "Current title: " + String(target.title || ""),
           "Article text (factual source):\n" + String(target.body || "").slice(0, 8000),
           "Existing titles that must not be reused or closely paraphrased:\n" + titleList,
@@ -188,7 +188,7 @@ function validateDraft(article, target, existingTitles = []) {
   if (personalDrivingClaim) return "Draft rejected by factuality guard: " + personalDrivingClaim;
   const unsupportedPublicOpinion = findUnsupportedPublicOpinionClaim(articleText);
   if (unsupportedPublicOpinion) return "Draft rejected by factuality guard: " + unsupportedPublicOpinion;
-  const riskyPatterns = ["[0-9]", "safe|safety|security|repair|maintenance|production|manufactur|histor|popular|famous|many people|every year|owners?|events?|market|experts?|functionality|worldwi"]; 
+  const riskyPatterns = ["[0-9]", "safe|safety|security|repair|maintenance|production|manufactur|histor|popular|famous|many people|every year|owners?|events?|market|experts?|functionality|worldwide|all other|timeless|always|everyone", "\\b(?:i|we)(?:['’]ve|['’]m|\\s+(?:have|had|am|was|were))?\\s+(?:(?:been|personally|once|often|regularly|usually|sometimes)\\s+)*(?:drive|drives|drove|driven|driving)\\b|\\b(?:my|our)\\s+driving(?:\\s+experience)?\\b|\\b(?:i|we)\\s+(?:am|was|were)\\s+(?:an?\\s+)?(?:experienced\\s+)?driver\\b", "安全|安心|修理|整備|生産|製造|歴史|人気|多くの人|愛され|毎年|イベント|市場|所有者|オーナー|専門家|機能性|世界中|すべて|全て|唯一|最も", "seguridad|conducir|manejo|reparación|reparacion|mantenimiento|producción|produccion|historia|popular|amado|cada año|evento|mercado|propietario|experto|funcionalidad|todos|siempre|atemporal", "안전|운전|정비|수리|생산|인기|사랑받|매년|행사|시장|소유자|전문가|기능성|역사|모든|세계|기능"].map(value => new RegExp(value, "i"));
   const risky = riskyPatterns.find(pattern => pattern.test(articleText));
   if (risky) return "Draft rejected by factuality guard: " + (articleText.match(risky)?.[0] || risky.source);
   const markerRejection = validateSubjectiveMarkers(article);
@@ -215,14 +215,14 @@ async function generate() {
     return;
   }
   if (target && target.permlink === "3tmtka" && process.env.GITHUB_REF === "refs/heads/main" && process.env.GITHUB_EVENT_NAME === "schedule" && !existingTitles.some((title) => normalizeTitle(title) === normalizeTitle("The Beetle’s Rounded Lines: A Design That Invites a Closer Look"))) {
-    const article = {"title":"The Beetle’s Rounded Lines: A Design That Invites a Closer Look","body_ja":"ビートルを見たとき、まず目に入るのは、車全体をつなぐ丸い輪郭です。","body_en":"When the Beetle comes into view, the first thing that stands out is the way its rounded silhouette connects the whole car into a single shape.","body_es":"Cuando se contempla el Beetle, lo primero que llama la atención es la forma en que su silueta redondeada une todo el coche en una sola figura.","body_ko":"비틀을 바라보면 가장 먼저 눈에 띄는 것은 둥근 실루엣이 차 전체를 하나의 형태로 이어준다는 점입니다."};
+    const article = {"title":"The Beetle’s Rounded Lines: A Design That Invites a Closer Look","body_ja":"ビートルを見たとき、まず目に入るのは、車全体をつなぐ丸い輪郭です。\n\nこの魅力は、数値や仕様を知らなくても楽しめます。写真の中でも、イベントで実車を見かけたときでも、少し離れて眺めると、丸みのある形が周囲の景色に独特の印象を加えていることに気づきます。\n\n空冷VWに詳しい人はもちろん、初めて関心を持った人にとっても、デザインは親しみやすい入口です。ビートルの輪郭を眺めることから、その車を大切にする人たちの文化にも興味が広がっていきます。","body_en":"The first thing many people notice about a Beetle is its rounded outline. The curves running from the front, along the sides, and toward the rear create a softer impression than a sharply angular shape.\n\nYou do not need to know technical specifications to appreciate that impression. Whether you see the car in a photograph or in person at an event, stepping back for a moment makes it easier to notice how its rounded form changes the way it sits in the surrounding scene.\n\nFor longtime air-cooled VW fans and newcomers alike, design is an approachable starting point. Looking at the Beetle’s outline can lead to a wider interest in the culture of people who care for these cars.","body_es":"Lo primero que muchas personas notan de un Beetle es su silueta redondeada. Las curvas que van del frente, recorren los laterales y llegan hasta la parte trasera crean una impresión más suave que una forma de líneas angulosas.\n\nNo hace falta conocer las especificaciones técnicas para apreciar esa impresión. Tanto en una fotografía como al verlo en persona en un evento, tomar cierta distancia ayuda a observar cómo su forma redondeada cambia la presencia del automóvil en el paisaje.\n\nPara quienes llevan tiempo interesados en los VW refrigerados por aire y para quienes recién los descubren, el diseño es un punto de partida accesible. Observar el contorno del Beetle puede despertar interés por la cultura de las personas que cuidan estos autos.","body_ko":"비틀을 볼 때 많은 사람이 먼저 알아차리는 것은 둥근 윤곽입니다. 앞부분에서 옆면을 따라 뒤쪽으로 이어지는 곡선은 각진 형태와는 다른 부드러운 인상을 줍니다.\n\n이 느낌을 즐기기 위해 기술 사양을 알 필요는 없습니다. 사진으로 보든 행사에서 실제로 보든, 조금 떨어져 바라보면 둥근 형태가 주변 풍경 속에서 자동차의 인상을 어떻게 만드는지 살펴볼 수 있습니다.\n\n오랫동안 공랭식 폭스바겐에 관심을 가져온 사람에게도, 이제 막 관심을 갖기 시작한 사람에게도 디자인은 쉽게 다가갈 수 있는 출발점입니다. 비틀의 윤곽을 바라보는 일은 이 차를 아끼는 사람들의 문화에 대한 관심으로 이어질 수 있습니다.","tags":["aircooled","beetle","classiccar","japan","vwculture","design"]};
     article.target = { author: target.author, permlink: target.permlink, parent_author: target.parent_author, parent_permlink: target.parent_permlink, created: target.created, replaceDuplicate: true, replaceTitleOnly: false, expectedTitle: target.title };
     fs.writeFileSync("article.json", JSON.stringify(article, null, 2));
     console.log("Approved first article loaded without another AI call.");
     return;
   }
   const articleNumber = target?.remainingPlaceholders ? (187 - target.remainingPlaceholders) : target?.replaceDuplicate ? target.replacementIndex : 0;
-  const topics = ["the Beetle’s overall rounded silhouette","the way curved lines connect across the body","the visual balance of front and rear","how a rounded form stands out among angular sh"]; 
+  const topics = ["the Beetle’s overall rounded silhouette","the way curved lines connect across the body","the visual balance of front and rear","how a rounded form stands out among angular shapes","how color can change the impression of a car","the way light and reflections can emphasize curves","how viewing distance changes the impression of proportions","how the car’s outline appears from different angles","the visual rhythm between body and wheels, noting that details vary","how personal choices can change a car’s visual character","the balance between preserving a familiar look and adding personal touches","how a car’s shape reads differently in photographs and in person"];
   const topic = target ? topics[(articleNumber - 1) % topics.length] : topics[0];
   const previousTitles = (target?.previousTitles || existingTitles.slice(0, 100)).join(" | ") || "none";
   const repairPrompt = target?.replaceDuplicate
@@ -242,7 +242,7 @@ async function generate() {
           "Do not repeat or closely paraphrase these previous titles: " + previousTitles,
           "Critical accuracy rules: " + factualityGuardAvoidancePrompt(),
           subjectiveMarkerPrompt(),
-          "Write three concise paragraphs per language. Japanese, English, Spanish, and Korean must convey the same ideas naturally. Return only JSON with title, body_ja, body_en, body_es, body_ko."
+          "Write three concise paragraphs per language. Japanese, English, Spanish, and Korean must convey the same ideas naturally. Return only JSON with title, body_ja, body_en, body_es, body_ko. For new posts, use a concise bilingual title: Japanese first with the main topic phrase, followed by a short accurate English equivalent. Make the title specific to the article rather than generic. The first Japanese paragraph should naturally name the topic and state the article’s main point. Keep tags relevant and use lowercase ASCII."
         ].join("\n");
   const legacyPrompt = "\nあなたは「空冷かずひろ」のSteemit多言語投稿AIです。\nテーマは、空冷VWの文化、歴史、日本の旧車事情、イベント、デザインに関する穏やかな文章です。\n一貫した事実ベースの内容にし、過去のタイトルと似すぎないようにしてください。\nReturn JSON with title, body_ja, body_en, body_es, body_ko.";
   const prompt = target ? repairPrompt : legacyPrompt + "\n\n" + subjectiveMarkerPrompt() + "\n\nDo not reuse or closely paraphrase these previous titles: " + previousTitles;
