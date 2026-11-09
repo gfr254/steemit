@@ -41,9 +41,8 @@ function loadArticle() {
   }
 
   const raw = fs.readFileSync("article.json", "utf-8");
-
-  if (!raw || raw.trim().length < 50) {
-    throw new Error("❌ article.json が破損しています（内容が空または不完全）");
+  if (!raw || !raw.trim()) {
+    throw new Error("❌ article.json が空です（generate.js が失敗）");
   }
 
   let json;
@@ -53,7 +52,13 @@ function loadArticle() {
     throw new Error("❌ article.json が JSON として読み込めません（破損）");
   }
 
+  // 生成側が意図的に出力する短い skip JSON を、通常記事のサイズ検査より先に扱う。
   if (json.skip === true) return json;
+
+  if (raw.trim().length < 50) {
+    throw new Error("❌ article.json が破損しています（内容が空または不完全）");
+  }
+
   if (json.titleOnly === true) {
     if (!json.title || !json.target?.permlink || json.target.replaceTitleOnly !== true || json.target.replaceDuplicate !== true) throw new Error("Title-only update is missing a verified duplicate target");
     return json;
@@ -61,7 +66,7 @@ function loadArticle() {
 
   const required = ["title", "body_ja", "body_en", "body_es", "body_ko"];
   for (const key of required) {
-    if (!json[key] || json[key].length < 10) {
+    if (typeof json[key] !== "string" || json[key].trim().length < 10) {
       throw new Error(`❌ article.json の ${key} が破損しています`);
     }
   }
@@ -97,7 +102,7 @@ async function ensureRcHeadroom(op) {
   const comment = op[1];
   const sizes = params.size_info;
   const state = sizes.resource_state_bytes;
-  const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length;
+  const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length + state.comment_object_parent_permlink_char_size * comment.parent_permlink.length + state.comment_object_author_permlink_char_size * (comment.author.length + comment.permlink.length);
   const counts = { resource_history_bytes: txSize, resource_state_bytes: stateBytes, resource_execution_time: sizes.resource_execution_time.comment_operation_exec_time };
   const vestingUnits = BigInt(globals.total_vesting_shares.split(" ")[0].replace(".", ""));
   const rcRegen = vestingUnits / 144000n;
@@ -222,28 +227,28 @@ async function postToSteemit(article) {
 ## 🇯🇵 日本語
 ${article.body_ja}
 
-> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化と歴史を、一般読者向けにわかりやすくまとめたものです。
+> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化や歴史についての一般的な紹介です。
 
 ---
 
 ## 🇺🇸 English
 ${article.body_en}
 
-> Note: The author does not currently own an air-cooled Volkswagen. This article summarizes the culture and history of air-cooled Volkswagens based on public information, historical sources, expert explanations, and owner experiences for a general audience.
+> Note: The author does not currently own an air-cooled Volkswagen. This article summarizes the culture and history of air-cooled Volkswagens based on public information, historical sources, expert explanations, and owner experiences.
 
 ---
 
 ## 🇪🇸 Español
 ${article.body_es}
 
-> Nota: El autor actualmente no posee un Volkswagen refrigerado por aire. Este artículo resume la cultura e historia de los Volkswagen refrigerados por aire a partir de información pública, fuentes históricas, explicaciones de expertos y experiencias de propietarios para un público general.
+> Nota: El autor actualmente no posee un Volkswagen refrigerado por aire. Este artículo resume la cultura y la historia de los Volkswagen refrigerados por aire a partir de información pública, fuentes históricas, explicaciones de expertos y experiencias de propietarios.
 
 ---
 
 ## 🇰🇷 한국어
 ${article.body_ko}
 
-> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 전문가 설명, 소유자 경험을 바탕으로 일반 독자에게 이해하기 쉽게 공랭식 폭스바겐의 문화와 역사를 정리한 글입니다.
+> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 전문가 설명, 소유자 경험을 바탕으로 공랭식 폭스바겐의 문화와 역사를 일반적으로 소개합니다.
 `;
 
   const json_metadata = article.titleOnly ? (existingTarget?.json_metadata || "{}") : {
@@ -276,10 +281,10 @@ ${article.body_ko}
   const candidateBody = normalizeBody(bodyWithImage);
   const history = verifiedHistory || await listAuthorHistory();
   const verifiedDuplicateTarget = Boolean(target?.replaceDuplicate && Array.isArray(verifiedHistory));
-  const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && normalizeBody(entry.body || "") === candidateBody)));
+  const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && normalizeBody(entry.body) === candidateBody)));
 
   if (duplicate) {
-    console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existing: duplicate.permlink }));
+    console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existingPermlink: duplicate.permlink }));
     return { skipped: true, permlink: duplicate.permlink };
   }
 
