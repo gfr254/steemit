@@ -53,7 +53,11 @@ function loadArticle() {
   }
 
   // 生成側が意図的に出力する短い skip JSON を、通常記事のサイズ検査より先に扱う。
-  if (json.skip === true) return json;
+  if (json && typeof json === "object" && json.skip === true) return json;
+
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    throw new Error("❌ article.json が JSON オブジェクトではありません");
+  }
 
   if (raw.trim().length < 50) {
     throw new Error("❌ article.json が破損しています（内容が空または不完全）");
@@ -91,46 +95,88 @@ async function safePost(op) {
 }
 
 async function ensureRcHeadroom(op) {
-  const results = await fetchRcPreflight({ author });
-  const account = results[0].rc_accounts?.find(item => item.account === author);
-  const params = results[1];
-  const pools = results[2];
-  const globals = results[3];
-  if (!account) throw new Error("RC preflight could not find the posting account");
+  try {
+    if (!author || !postingKey) {
+      console.warn("⚠️ STEEM 認証情報が未設定のため、RC 判定をスキップして投稿を止めます。");
+      return false;
+    }
 
-  const txSize = Buffer.byteLength(JSON.stringify(op), "utf8") + 512;
-  const comment = op[1];
-  const sizes = params.size_info;
-  const state = sizes.resource_state_bytes;
-  const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length + state.comment_object_parent_permlink_char_size * comment.parent_permlink.length + state.comment_object_author_permlink_char_size * (comment.author.length + comment.permlink.length);
-  const counts = { resource_history_bytes: txSize, resource_state_bytes: stateBytes, resource_execution_time: sizes.resource_execution_time.comment_operation_exec_time };
-  const vestingUnits = BigInt(globals.total_vesting_shares.split(" ")[0].replace(".", ""));
-  const rcRegen = vestingUnits / 144000n;
-  let estimated = 0n;
+    if (!Array.isArray(op) || op.length < 2 || !op[1] || typeof op[1]?.permlink !== "string") {
+      console.warn("⚠️ RC preflight の入力が不正のため、投稿をスキップします。");
+      return false;
+    }
 
-  for (const [name, count] of Object.entries(counts)) {
-    const config = params.resource_params[name];
-    const curve = config.price_curve_params;
-    const pool = BigInt(pools.resource_pool[name].pool);
-    const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(config.resource_dynamics_params.resource_unit);
-    estimated += numerator / (BigInt(curve.coeff_b) + pool) + 1n;
-  }
+    const results = await fetchRcPreflight({ author });
+    if (!Array.isArray(results) || results.length < 4) {
+      console.warn("⚠️ RC preflight が不完全な応答を返したため、投稿をスキップします。");
+      return false;
+    }
 
-  const maxMana = BigInt(account.max_rc);
-  const storedMana = BigInt(account.rc_manabar.current_mana);
-  const elapsed = BigInt(Math.max(0, Math.floor(Date.now() / 1000) - Number(account.rc_manabar.last_update_time)));
-  const regenerated = elapsed * maxMana / 432000n;
-  const current = storedMana + regenerated > maxMana ? maxMana : storedMana + regenerated;
-  const threshold = estimated * 105n / 100n;
+    const [rcAccountsResult, params, pools, globals] = results;
+    const account = rcAccountsResult?.rc_accounts?.find(item => item.account === author);
+    if (!account) {
+      console.warn("⚠️ RC preflight で投稿アカウントが見つからなかったため、投稿をスキップします。");
+      return false;
+    }
 
-  console.log("RC preflight", JSON.stringify({ current: current.toString(), estimated: estimated.toString(), threshold: threshold.toString(), txSize }));
+    const sizes = params?.size_info;
+    const resourceState = sizes?.resource_state_bytes;
+    const resourceParams = params?.resource_params;
+    const resourcePool = pools?.resource_pool;
+    const totalVestingShares = globals?.total_vesting_shares;
+    if (!resourceState || !resourceParams || !resourcePool || !totalVestingShares) {
+      console.warn("⚠️ RC preflight に必要な値が不足しているため、投稿をスキップします。");
+      return false;
+    }
 
-  if (current < threshold) {
-    console.warn("⚠️ RC headroom is insufficient for a broadcast; skipping the post instead of failing the workflow.");
+    const txSize = Buffer.byteLength(JSON.stringify(op), "utf8") + 512;
+    const comment = op[1];
+    const state = resourceState;
+    const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length + state.comment_object_parent_permlink_char_size * (comment.parent_permlink?.length || 0) + state.comment_object_author_permlink_char_size * ((comment.author?.length || 0) + comment.permlink.length);
+    const counts = { resource_history_bytes: txSize, resource_state_bytes: stateBytes, resource_execution_time: sizes.resource_execution_time.comment_operation_exec_time };
+
+    const parseShareValue = (value) => {
+      if (typeof value === "bigint") return value;
+      const amount = String(value ?? "").trim().split(" ")[0];
+      if (!amount) throw new Error("vesting share value is empty");
+      return BigInt(amount.replace(/\./g, ""));
+    };
+
+    const vestingUnits = parseShareValue(totalVestingShares);
+    const rcRegen = vestingUnits / 144000n;
+    let estimated = 0n;
+
+    for (const [name, count] of Object.entries(counts)) {
+      const config = resourceParams[name];
+      if (!config || !resourcePool[name]) {
+        console.warn(`⚠️ RC preflight の設定が不足: ${name}`);
+        return false;
+      }
+      const curve = config.price_curve_params;
+      const pool = BigInt(resourcePool[name].pool);
+      const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(config.resource_dynamics_params.resource_unit);
+      estimated += numerator / (BigInt(curve.coeff_b) + pool) + 1n;
+    }
+
+    const maxMana = BigInt(account.max_rc);
+    const storedMana = BigInt(account.rc_manabar.current_mana);
+    const elapsed = BigInt(Math.max(0, Math.floor(Date.now() / 1000) - Number(account.rc_manabar.last_update_time)));
+    const regenerated = elapsed * maxMana / 432000n;
+    const current = storedMana + regenerated > maxMana ? maxMana : storedMana + regenerated;
+    const threshold = estimated * 105n / 100n;
+
+    console.log("RC preflight", JSON.stringify({ current: current.toString(), estimated: estimated.toString(), threshold: threshold.toString(), txSize }));
+
+    if (current < threshold) {
+      console.warn("⚠️ RC headroom is insufficient for a broadcast; skipping the post instead of failing the workflow.");
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.warn("⚠️ RC preflight failed; skipping the post instead of failing the workflow.", error?.message || error);
     return false;
   }
-
-  return true;
 }
 
 function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("en"); }
