@@ -101,18 +101,40 @@ async function ensureRcHeadroom(op) {
   const txSize = Buffer.byteLength(JSON.stringify(op), "utf8") + 512;
   const comment = op[1];
   const sizes = params.size_info;
-  const state = sizes.resource_state_bytes;
-  const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length + state.comment_object_parent_permlink_char_size * comment.parent_permlink.length + state.comment_object_author_permlink_char_size * (comment.author.length + comment.permlink.length);
-  const counts = { resource_history_bytes: txSize, resource_state_bytes: stateBytes, resource_execution_time: sizes.resource_execution_time.comment_operation_exec_time };
-  const vestingUnits = BigInt(globals.total_vesting_shares.split(" ")[0].replace(".", ""));
+  const state = sizes.resource_state_bytes ?? {};
+  const stateBytes =
+    Number(state.transaction_object_base_size ?? 0) +
+    Number(state.transaction_object_byte_size ?? 0) * txSize +
+    Number(state.comment_object_base_size ?? 0) +
+    Number(state.comment_object_permlink_char_size ?? 0) * comment.permlink.length +
+    Number(state.comment_object_parent_permlink_char_size ?? 0) * comment.parent_permlink.length;
+  const counts = {
+    resource_history_bytes: txSize,
+    resource_state_bytes: stateBytes,
+    resource_execution_time: Number(sizes.resource_execution_time?.comment_operation_exec_time ?? 0)
+  };
+  const vestingUnits = BigInt(String(globals.total_vesting_shares.split(" ")[0]).replace(".", ""));
   const rcRegen = vestingUnits / 144000n;
   let estimated = 0n;
 
   for (const [name, count] of Object.entries(counts)) {
     const config = params.resource_params[name];
+    if (!config || !config.price_curve_params) {
+      console.warn(`⚠️ RC config missing for ${name}; skipping the post instead of failing the workflow.`);
+      return false;
+    }
+
     const curve = config.price_curve_params;
-    const pool = BigInt(pools.resource_pool[name].pool);
-    const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(config.resource_dynamics_params.resource_unit);
+    const pool = BigInt(String(pools.resource_pool[name].pool));
+    const resourceUnit = Number(config.resource_dynamics_params?.resource_unit ?? 0);
+    const numericCount = Number(count);
+
+    if (!Number.isFinite(resourceUnit) || resourceUnit <= 0 || !Number.isFinite(numericCount) || numericCount < 0) {
+      console.warn(`⚠️ Invalid RC values for ${name}; skipping the post instead of failing the workflow.`);
+      return false;
+    }
+
+    const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(Math.trunc(numericCount)) * BigInt(Math.trunc(resourceUnit));
     estimated += numerator / (BigInt(curve.coeff_b) + pool) + 1n;
   }
 
@@ -227,7 +249,7 @@ async function postToSteemit(article) {
 ## 🇯🇵 日本語
 ${article.body_ja}
 
-> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化や歴史についての一般的な紹介です。
+> 注意：筆者は現時点で空冷VWを所有していません。この記事は、公開情報、販売情報、専門家の説明、オーナーの体験談をもとにした空冷VWの文化と歴史を紹介します。
 
 ---
 
@@ -248,7 +270,7 @@ ${article.body_es}
 ## 🇰🇷 한국어
 ${article.body_ko}
 
-> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 전문가 설명, 소유자 경험을 바탕으로 공랭식 폭스바겐의 문화와 역사를 일반적으로 소개합니다.
+> 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 전문가 설명, 소유자 경험을 바탕으로 공랭식 폭스바겐의 문화와 역사를 정리합니다.
 `;
 
   const json_metadata = article.titleOnly ? (existingTarget?.json_metadata || "{}") : {
@@ -281,7 +303,7 @@ ${article.body_ko}
   const candidateBody = normalizeBody(bodyWithImage);
   const history = verifiedHistory || await listAuthorHistory();
   const verifiedDuplicateTarget = Boolean(target?.replaceDuplicate && Array.isArray(verifiedHistory));
-  const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && normalizeBody(entry.body) === candidateBody)));
+  const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && normalizeBody(entry.body || "") === candidateBody)));
 
   if (duplicate) {
     console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existingPermlink: duplicate.permlink }));
