@@ -15,7 +15,7 @@ async function getClient() {
   for (const url of RPC_NODES) {
     try {
       const c = new Client(url);
-      await c.database.getDynamicGlobalProperties(); // 生存確認
+      await c.database.getDynamicGlobalProperties();
       console.log("✔ RPC OK:", url);
       return c;
     } catch (e) {
@@ -26,60 +26,39 @@ async function getClient() {
 }
 
 const client = await getClient();
-
 const postingKey = process.env.STEEM_POST_KEY;
 const author = process.env.STEEM_AUTHOR;
-
 const RAW_IMAGE_URL = "https://gfr254.github.io/steemit/beetle.png";
 
-// ====== article.json 読み込み（破損検出付き） ======
 function loadArticle() {
   console.log("📄 article.json を読み込みます...");
-
-  if (!fs.existsSync("article.json")) {
-    throw new Error("❌ article.json が存在しません（generate.js が失敗）");
-  }
-
+  if (!fs.existsSync("article.json")) throw new Error("❌ article.json が存在しません（generate.js が失敗）");
   const raw = fs.readFileSync("article.json", "utf-8");
-  if (!raw || !raw.trim()) {
-    throw new Error("❌ article.json が空です（generate.js が失敗）");
-  }
+  if (!raw || !raw.trim()) throw new Error("❌ article.json が空です（generate.js が失敗）");
 
   let json;
   try {
     json = JSON.parse(raw);
-  } catch (e) {
+  } catch {
     throw new Error("❌ article.json が JSON として読み込めません（破損）");
   }
 
-  // 生成側が意図的に出力する短い skip JSON を、通常記事のサイズ検査より先に扱う。
   if (json && typeof json === "object" && json.skip === true) return json;
-
-  if (typeof json !== "object" || json === null || Array.isArray(json)) {
-    throw new Error("❌ article.json が JSON オブジェクトではありません");
-  }
-
-  if (raw.trim().length < 50) {
-    throw new Error("❌ article.json が破損しています（内容が空または不完全）");
-  }
+  if (typeof json !== "object" || json === null || Array.isArray(json)) throw new Error("❌ article.json が JSON オブジェクトではありません");
+  if (raw.trim().length < 50) throw new Error("❌ article.json が破損しています（内容が空または不完全）");
 
   if (json.titleOnly === true) {
     if (!json.title || !json.target?.permlink || json.target.replaceTitleOnly !== true || json.target.replaceDuplicate !== true) throw new Error("Title-only update is missing a verified duplicate target");
     return json;
   }
 
-  const required = ["title", "body_ja", "body_en", "body_es", "body_ko"];
-  for (const key of required) {
-    if (typeof json[key] !== "string" || json[key].trim().length < 10) {
-      throw new Error(`❌ article.json の ${key} が破損しています`);
-    }
+  for (const key of ["title", "body_ja", "body_en", "body_es", "body_ko"]) {
+    if (typeof json[key] !== "string" || json[key].trim().length < 10) throw new Error(`❌ article.json の ${key} が破損しています`);
   }
-
   console.log("✔ article.json は正常です");
   return json;
 }
 
-// ====== 5分ルール自動リトライ ======
 async function safePost(op) {
   try {
     return await client.broadcast.sendOperations([op], PrivateKey.fromString(postingKey));
@@ -96,66 +75,57 @@ async function safePost(op) {
 
 async function ensureRcHeadroom(op) {
   try {
-    if (!author || !postingKey) {
-      console.warn("⚠️ STEEM 認証情報が未設定のため、RC 判定をスキップして投稿を止めます。");
-      return false;
-    }
-
-    if (!Array.isArray(op) || op.length < 2 || !op[1] || typeof op[1]?.permlink !== "string") {
-      console.warn("⚠️ RC preflight の入力が不正のため、投稿をスキップします。");
-      return false;
-    }
-
+    if (!author || !postingKey || !Array.isArray(op) || op.length < 2 || !op[1]) return false;
     const results = await fetchRcPreflight({ author });
-    if (!Array.isArray(results) || results.length < 4) {
-      console.warn("⚠️ RC preflight が不完全な応答を返したため、投稿をスキップします。");
-      return false;
-    }
+    if (!Array.isArray(results) || results.length < 4) return false;
 
     const [rcAccountsResult, params, pools, globals] = results;
     const account = rcAccountsResult?.rc_accounts?.find(item => item.account === author);
-    if (!account) {
-      console.warn("⚠️ RC preflight で投稿アカウントが見つからなかったため、投稿をスキップします。");
-      return false;
-    }
-
     const sizes = params?.size_info;
-    const resourceState = sizes?.resource_state_bytes;
+    const state = sizes?.resource_state_bytes;
     const resourceParams = params?.resource_params;
     const resourcePool = pools?.resource_pool;
-    const totalVestingShares = globals?.total_vesting_shares;
-    if (!resourceState || !resourceParams || !resourcePool || !totalVestingShares) {
-      console.warn("⚠️ RC preflight に必要な値が不足しているため、投稿をスキップします。");
-      return false;
-    }
+    if (!account || !state || !resourceParams || !resourcePool || !globals?.total_vesting_shares) return false;
 
-    const txSize = Buffer.byteLength(JSON.stringify(op), "utf8") + 512;
     const comment = op[1];
-    const state = resourceState;
-    const stateBytes = state.transaction_object_base_size + state.transaction_object_byte_size * txSize + state.comment_object_base_size + state.comment_object_permlink_char_size * comment.permlink.length + state.comment_object_parent_permlink_char_size * (comment.parent_permlink?.length || 0) + state.comment_object_author_permlink_char_size * ((comment.author?.length || 0) + comment.permlink.length);
-    const counts = { resource_history_bytes: txSize, resource_state_bytes: stateBytes, resource_execution_time: sizes.resource_execution_time.comment_operation_exec_time };
-
-    const parseShareValue = (value) => {
-      if (typeof value === "bigint") return value;
-      const amount = String(value ?? "").trim().split(" ")[0];
-      if (!amount) throw new Error("vesting share value is empty");
-      return BigInt(amount.replace(/\./g, ""));
+    const txSize = Buffer.byteLength(JSON.stringify(op), "utf8") + 512;
+    const stateBytes = state.transaction_object_base_size
+      + state.transaction_object_byte_size * txSize
+      + state.comment_object_base_size
+      + state.comment_object_permlink_char_size * (comment.permlink?.length ?? 0)
+      + state.comment_object_parent_permlink_char_size * (comment.parent_permlink?.length ?? 0)
+      + state.comment_object_author_permlink_char_size * ((comment.author?.length ?? 0) + (comment.permlink?.length ?? 0));
+    const counts = {
+      resource_history_bytes: txSize,
+      resource_state_bytes: stateBytes,
+      resource_execution_time: sizes?.resource_execution_time?.comment_operation_exec_time
     };
 
-    const vestingUnits = parseShareValue(totalVestingShares);
+    const vestingValue = String(globals.total_vesting_shares).trim().split(" ")[0];
+    if (!vestingValue || !/^\d+(?:\.\d+)?$/.test(vestingValue)) throw new Error("invalid total_vesting_shares from RC preflight");
+    const vestingUnits = BigInt(vestingValue.replace(/\./g, ""));
     const rcRegen = vestingUnits / 144000n;
     let estimated = 0n;
 
     for (const [name, count] of Object.entries(counts)) {
+      // RC RPC may omit fields or return a shape incompatible with the estimate. Never pass NaN to BigInt.
+      if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
+        console.warn(`⚠️ RC preflight の ${name} が不正 (${String(count)}) のため、投稿をスキップします。`);
+        return false;
+      }
       const config = resourceParams[name];
-      if (!config || !resourcePool[name]) {
+      const curve = config?.price_curve_params;
+      const dynamics = config?.resource_dynamics_params;
+      const poolValue = resourcePool[name]?.pool;
+      if (!curve || !dynamics || poolValue === undefined || curve.coeff_a === undefined || curve.shift === undefined || curve.coeff_b === undefined || dynamics.resource_unit === undefined) {
         console.warn(`⚠️ RC preflight の設定が不足: ${name}`);
         return false;
       }
-      const curve = config.price_curve_params;
-      const pool = BigInt(resourcePool[name].pool);
-      const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(config.resource_dynamics_params.resource_unit);
-      estimated += numerator / (BigInt(curve.coeff_b) + pool) + 1n;
+      const pool = BigInt(poolValue);
+      const numerator = (((rcRegen * BigInt(curve.coeff_a)) >> BigInt(curve.shift)) + 1n) * BigInt(count) * BigInt(dynamics.resource_unit);
+      const denominator = BigInt(curve.coeff_b) + pool;
+      if (denominator <= 0n) throw new Error(`invalid RC pool denominator for ${name}`);
+      estimated += numerator / denominator + 1n;
     }
 
     const maxMana = BigInt(account.max_rc);
@@ -164,14 +134,12 @@ async function ensureRcHeadroom(op) {
     const regenerated = elapsed * maxMana / 432000n;
     const current = storedMana + regenerated > maxMana ? maxMana : storedMana + regenerated;
     const threshold = estimated * 105n / 100n;
-
     console.log("RC preflight", JSON.stringify({ current: current.toString(), estimated: estimated.toString(), threshold: threshold.toString(), txSize }));
 
     if (current < threshold) {
-      console.warn("⚠️ RC headroom is insufficient for a broadcast; skipping the post instead of failing the workflow.");
+      console.warn("⚠️ RC headroom is insufficient; skipping the post.");
       return false;
     }
-
     return true;
   } catch (error) {
     console.warn("⚠️ RC preflight failed; skipping the post instead of failing the workflow.", error?.message || error);
@@ -181,71 +149,44 @@ async function ensureRcHeadroom(op) {
 
 function normalizeTitle(value) { return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("en"); }
 function normalizeBody(value) {
-  return String(value ?? "")
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/<[^>]*>/g, " ")
-    .normalize("NFKC")
-    .toLocaleLowerCase("en")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return String(value ?? "").replace(/!\[[^\]]*\]\([^)]+\)/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/<[^>]*>/g, " ").normalize("NFKC").toLocaleLowerCase("en").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 
 async function listAuthorHistory() {
   const posts = new Map();
   let startPermlink = "";
   let beforeDate = "2100-01-01T00:00:00";
-
   for (let page = 0; page < 100; page += 1) {
     let rows = null;
     let lastError = null;
-
     for (const url of RPC_NODES) {
       try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "condenser_api.get_discussions_by_author_before_date",
-            params: [author, startPermlink, beforeDate, 100],
-            id: 1
-          })
-        });
+        const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", method: "condenser_api.get_discussions_by_author_before_date", params: [author, startPermlink, beforeDate, 100], id: 1 }) });
         const payload = await response.json();
         if (!response.ok || payload.error || !Array.isArray(payload.result)) throw new Error("Steemit history RPC failed");
         rows = payload.result;
         break;
-      } catch (error) {
-        lastError = error;
-      }
+      } catch (error) { lastError = error; }
     }
-
     if (!rows) throw lastError || new Error("Steemit history unavailable; publication stopped");
     if (rows.length === 0) return [...posts.values()];
-
     const priorCount = posts.size;
     for (const post of rows) if (post.author === author && post.permlink) posts.set(post.permlink, post);
     if (posts.size === priorCount && rows.length === 100) throw new Error("Steemit history pagination did not advance; publication stopped");
     if (rows.length < 100) return [...posts.values()];
-
     const oldest = rows.at(-1);
     if (!oldest?.permlink || !oldest?.created) throw new Error("Steemit history returned an invalid cursor; publication stopped");
     startPermlink = oldest.permlink;
     beforeDate = oldest.created;
   }
-
   throw new Error("Steemit history exceeds the 10,000-post duplicate-check limit; publication stopped");
 }
 
 async function postToSteemit(article) {
   console.log(article.target ? "🚀 Steemit 既存投稿を更新中..." : "🚀 Steemit 投稿中...");
-
   const target = article.target;
   let verifiedHistory = null;
   let existingTarget = null;
-
   if (target) {
     if (target.author !== author) throw new Error("Target author mismatch");
     const existing = await client.database.call("get_content", [author, target.permlink]);
@@ -254,19 +195,12 @@ async function postToSteemit(article) {
     if (target.replaceDuplicate === true) {
       if (!target.expectedTitle || existing.title !== target.expectedTitle) throw new Error("Duplicate target changed after generation; refusing to overwrite");
       verifiedHistory = await listAuthorHistory();
-      const sameTitle = verifiedHistory
-        .filter(item => normalizeTitle(item.title) === normalizeTitle(target.expectedTitle))
-        .sort((x, y) => String(x.created).localeCompare(String(y.created)));
+      const sameTitle = verifiedHistory.filter(item => normalizeTitle(item.title) === normalizeTitle(target.expectedTitle)).sort((x, y) => String(x.created).localeCompare(String(y.created)));
       if (sameTitle.length < 2 || sameTitle[1]?.permlink !== target.permlink) throw new Error("Target is not the next duplicate after the oldest copy; refusing to overwrite");
-    } else if (existing.title !== "*" || existing.body !== "*") {
-      throw new Error("Target is no longer a placeholder; refusing to overwrite");
-    }
+    } else if (existing.title !== "*" || existing.body !== "*") throw new Error("Target is no longer a placeholder; refusing to overwrite");
   }
-
   if (article.titleOnly && typeof existingTarget?.body !== "string") throw new Error("Existing post body unavailable; refusing title-only update");
-
   const permlink = target ? target.permlink : "beetle-" + new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
-
   const bodyWithImage = article.titleOnly ? existingTarget?.body : `
 ![Air-cooled Beetle](${RAW_IMAGE_URL})
 
@@ -296,50 +230,21 @@ ${article.body_ko}
 
 > 안내: 작성자는 현재 공랭식 폭스바겐을 소유하고 있지 않습니다. 이 글은 공개 정보, 역사 자료, 전문가 설명, 소유자 경험을 바탕으로 공랭식 폭스바겐의 문화와 역사를 일반적으로 소개합니다.
 `;
-
-  const json_metadata = article.titleOnly ? (existingTarget?.json_metadata || "{}") : {
-    tags: [
-      "aircooled",
-      "beetle",
-      "classiccar",
-      "japan",
-      "vwculture",
-      "history",
-      ...(article.tags || [])
-    ],
-    app: "ai-writer"
-  };
-
-  const op = [
-    "comment",
-    {
-      parent_author: target ? target.parent_author : "",
-      parent_permlink: target ? target.parent_permlink : "life",
-      author: author,
-      permlink: permlink,
-      title: article.title.trim(),
-      body: bodyWithImage,
-      json_metadata: typeof json_metadata === "string" ? json_metadata : JSON.stringify(json_metadata),
-    },
-  ];
-
+  const json_metadata = article.titleOnly ? (existingTarget?.json_metadata || "{}") : { tags: ["aircooled", "beetle", "classiccar", "japan", "vwculture", "history", ...(article.tags || [])], app: "ai-writer" };
+  const op = ["comment", { parent_author: target ? target.parent_author : "", parent_permlink: target ? target.parent_permlink : "life", author, permlink, title: article.title.trim(), body: bodyWithImage, json_metadata: typeof json_metadata === "string" ? json_metadata : JSON.stringify(json_metadata) }];
   const candidateTitle = normalizeTitle(article.title);
   const candidateBody = normalizeBody(bodyWithImage);
   const history = verifiedHistory || await listAuthorHistory();
   const verifiedDuplicateTarget = Boolean(target?.replaceDuplicate && Array.isArray(verifiedHistory));
-  const duplicate = history.find((entry) => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && normalizeBody(entry.body) === candidateBody)));
-
+  const duplicate = history.find(entry => entry.permlink !== target?.permlink && (normalizeTitle(entry.title) === candidateTitle || (shouldCheckDuplicateBody(article, verifiedDuplicateTarget) && normalizeBody(entry.body) === candidateBody)));
   if (duplicate) {
     console.log(JSON.stringify({ published: false, skipped: true, reason: normalizeTitle(duplicate.title) === candidateTitle ? "duplicate_title" : "duplicate_body", title: article.title, existingPermlink: duplicate.permlink }));
     return { skipped: true, permlink: duplicate.permlink };
   }
-
-  const rcReady = await ensureRcHeadroom(op);
-  if (!rcReady) {
-    console.log("🚫 RC headroom insufficient; no transaction broadcast.");
-    return { skipped: true, reason: "insufficient_rc" };
+  if (!await ensureRcHeadroom(op)) {
+    console.log("🚫 RC preflight unavailable or headroom insufficient; no transaction broadcast.");
+    return { skipped: true, reason: "insufficient_rc_or_invalid_preflight" };
   }
-
   const result = await safePost(op);
   console.log("✔ 投稿成功！");
   console.log(result);
@@ -352,12 +257,10 @@ ${article.body_ko}
     console.log("No replacement target remains; no Steemit transaction broadcast.");
     return;
   }
-
   if (process.env.GITHUB_REF !== "refs/heads/main" || process.env.GITHUB_EVENT_NAME !== "schedule") {
     console.log("DRY RUN — no Steemit transaction broadcast");
     console.log(JSON.stringify(article, null, 2));
     return;
   }
-
   await postToSteemit(article);
 })();
