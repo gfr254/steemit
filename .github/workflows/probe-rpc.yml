@@ -1,0 +1,21 @@
+name: Probe Steem RPC
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      STEEM_AUTHOR: ${{ secrets.STEEM_AUTHOR }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Probe RPC nodes
+        run: node scripts/probe-rpc.js
