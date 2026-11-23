@@ -5,9 +5,10 @@ import { fetchRcPreflight } from "./rc-preflight.js";
 
 // ====== 投稿可能な RPC ノードのみ ======
 const RPC_NODES = [
+  "https://steem.justyy.com",
+  "https://api.moecki.online",
   "https://api.justyy.com",
-  "https://api.steemit.com",
-  "https://api.steemitdev.com"
+  "https://api.steemit.com"
 ];
 
 // ====== RPC 生存確認付きクライアント ======
