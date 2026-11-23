@@ -1,6 +1,7 @@
 const STEEM_NODES = [
   process.env.STEEM_RPC_URL,
   "https://api.steemit.com",
+  "https://api.moecki.online",
   "https://steem.justyy.com",
 ].filter(Boolean);
 
