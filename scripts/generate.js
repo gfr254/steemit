@@ -20,12 +20,13 @@ function sleep(ms) {
 
 function isTransientSteemError(error) {
   if (!error) return false;
-  const message = typeof error === "string" ? error : JSON.stringify(error);
-  if (/circuit breaker open|Upstream temporarily unavailable|temporarily unavailable|request rejected without dialing upstream|too many requests|service unavailable|network|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|timeout/i.test(message)) {
+  // Error オブジェクトは JSON.stringify すると "{}" になるため、message を使う
+  const message = typeof error === "string" ? error : (error instanceof Error ? error.message : JSON.stringify(error));
+  if (/circuit breaker open|Upstream temporarily unavailable|temporarily unavailable|request rejected without dialing upstream|too many requests|service unavailable|Internal Error|network|fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|timeout/i.test(message)) {
     return true;
   }
   const code = Number(error?.code ?? error?.data?.code);
-  return [1100, 1101, 500, 503, 429].includes(code);
+  return [1100, 1101, 500, 503, 429, -32603].includes(code);
 }
 
 function isRetryableHttpStatus(status) {
@@ -63,7 +64,7 @@ async function rpc(method, params, retries = 3) {
           await sleep(delayMs);
           continue;
         }
-        throw new Error("Steem RPC error: " + JSON.stringify(payload.error));
+        throw new Error("Steem RPC error @ " + node + ": " + JSON.stringify(payload.error));
       }
       return payload.result;
     } catch (error) {
@@ -87,6 +88,7 @@ async function findOldestPlaceholder(mode = "combined") {
   let cursor = null;
   const existingTitles = [];
   for (let page = 0; page < 10; page++) {
+    console.log("Fetching blog history page", page + 1);
     const rows = await rpc("condenser_api.get_discussions_by_blog", [{ tag: author, limit: 100, ...(cursor ? { start_author: cursor.author, start_permlink: cursor.permlink } : {}) }]);
     if (!Array.isArray(rows) || rows.length === 0) break;
     for (const item of rows) {
