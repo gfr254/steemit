@@ -14,6 +14,9 @@ const STEEM_NODES = [
   "https://api.steemit.com",
 ].filter(Boolean);
 
+// 403 を返したノード(GitHub ActionsのIPが拒否されている等)は、この実行中は使わない
+const deadNodes = new Set();
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -36,8 +39,10 @@ function isRetryableHttpStatus(status) {
 async function rpc(method, params, retries = 3) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
-    // 試行ごとにノードをローテーション
-    const node = STEEM_NODES[attempt % STEEM_NODES.length];
+    // 試行ごとにノードをローテーション(403のノードは除外)
+    const alive = STEEM_NODES.filter((n) => !deadNodes.has(n));
+    const candidates = alive.length ? alive : STEEM_NODES;
+    const node = candidates[attempt % candidates.length];
     try {
       const response = await fetch(node, {
         method: "POST",
@@ -48,6 +53,7 @@ async function rpc(method, params, retries = 3) {
         body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
       });
       if (!response.ok) {
+        if (response.status === 403) deadNodes.add(node);
         if (attempt < retries && isRetryableHttpStatus(response.status)) {
           const delayMs = 1000 * (attempt + 1) * 2;
           console.warn(`Steem RPC HTTP ${response.status} @ ${node}; retrying in ${delayMs}ms (attempt ${attempt + 1}/${retries + 1})`);
@@ -85,21 +91,29 @@ async function findOldestPlaceholder(mode = "combined") {
   const author = process.env.STEEM_AUTHOR;
   const found = new Map();
   const existingPosts = new Map();
-  let cursor = null;
   const existingTitles = [];
+  // get_discussions_by_blog が Internal Error になるため、post.js と同じ author_before_date 方式で取得する
+  let startPermlink = "";
+  let beforeDate = "2100-01-01T00:00:00";
+  const seen = new Set();
   for (let page = 0; page < 10; page++) {
-    console.log("Fetching blog history page", page + 1);
-    const rows = await rpc("condenser_api.get_discussions_by_blog", [{ tag: author, limit: 100, ...(cursor ? { start_author: cursor.author, start_permlink: cursor.permlink } : {}) }]);
+    console.log("Fetching author history page", page + 1);
+    const rows = await rpc("condenser_api.get_discussions_by_author_before_date", [author, startPermlink, beforeDate, 100]);
     if (!Array.isArray(rows) || rows.length === 0) break;
+    const seenBefore = seen.size;
     for (const item of rows) {
       if (item.author !== author) continue;
+      if (seen.has(item.permlink)) continue;
+      seen.add(item.permlink);
       if (item.title === "*" && item.body === "*") found.set(item.permlink, item);
       else if (item.title && item.title !== "*") { existingTitles.push(item.title); existingPosts.set(item.permlink, item); }
     }
-    const last = rows[rows.length - 1];
-    if (cursor && last.author === cursor.author && last.permlink === cursor.permlink) break;
-    cursor = { author: last.author, permlink: last.permlink };
     if (rows.length < 100) break;
+    if (seen.size === seenBefore) break; // ページが進まない場合は打ち切る
+    const oldest = rows[rows.length - 1];
+    if (!oldest?.permlink || !oldest?.created) break;
+    startPermlink = oldest.permlink;
+    beforeDate = oldest.created;
   }
   const titleKey = value => String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
   const grouped = new Map();
