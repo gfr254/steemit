@@ -7,11 +7,12 @@ console.log("generate.js start", process.argv.slice(2));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// 動作確認済みのノード(api.justyy.com)を先頭にする。STEEM_RPC_URL で上書き可能。
+// GitHub Actions からの確認(probe-rpc)で、履歴取得まで通ったノードのみ。STEEM_RPC_URL で上書き可能。
+// api.steemit.com は403、api.justyy.com は履歴系で Internal Error のため外している。
 const STEEM_NODES = [
   process.env.STEEM_RPC_URL,
-  "https://api.justyy.com",
-  "https://api.steemit.com",
+  "https://steem.justyy.com",
+  "https://api.moecki.online",
 ].filter(Boolean);
 
 // 403 を返したノード(GitHub ActionsのIPが拒否されている等)は、この実行中は使わない
