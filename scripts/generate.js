@@ -5,6 +5,8 @@ const STEEM_NODES = [
   "https://steem.justyy.com",
 ].filter(Boolean);
 
+console.log("generate.js start", process.argv.slice(2));
+
 function isRetryableHttpStatus(status) {
   return status >= 500 || status === 429 || status === 403;
 }
@@ -52,6 +54,11 @@ async function rpc(method, params, retries = 3) {
         continue;
       }
       throw error;
+
+      generate().catch((error) => {
+  console.error("generate.js failed:", error);
+  process.exit(1);
+});
     }
   }
   throw lastError || new Error("Steem RPC failed after retries");
